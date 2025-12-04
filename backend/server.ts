@@ -21,7 +21,7 @@ const PUBLIC_DIR = path.join(__dirname, 'public');
 if (!fs.existsSync(WORKSPACE_DIR)) fs.mkdirSync(WORKSPACE_DIR, { recursive: true, mode: 0o777 });
 if (!fs.existsSync(PUBLIC_DIR)) fs.mkdirSync(PUBLIC_DIR, { recursive: true, mode: 0o777 });
 
-app.get('/', (req, res) => { res.status(200).send('AppBuilder-AI v3.1 (Ultimate Layout Fix) is Running. 🚀'); });
+app.get('/', (req, res) => { res.status(200).send('AppBuilder-AI v3.3 (Auto-Inject CSS) is Running. 🚀'); });
 app.use('/download', express.static(PUBLIC_DIR) as any);
 
 const sendEvent = (res: any, data: any) => {
@@ -81,6 +81,40 @@ app.get('/api/build/stream', async (req, res) => {
         log('Installing dependencies...', 'command');
         await runCommand('npm', ['install'], projectDir, log);
 
+        // --- FITUR BARU: AUTO INJECT CSS ---
+        if (!isFullscreen) {
+            log('Injecting Safe-Area CSS to index.html...', 'info');
+            const indexHtmlPath = path.join(projectDir, 'index.html');
+            
+            if (fs.existsSync(indexHtmlPath)) {
+                let htmlContent = fs.readFileSync(indexHtmlPath, 'utf-8');
+                
+                // CSS Sakti buat nurunin konten
+                const safeAreaCSS = `
+                <style>
+                    body {
+                        padding-top: env(safe-area-inset-top, 35px) !important;
+                        padding-top: constant(safe-area-inset-top, 35px) !important;
+                        box-sizing: border-box !important;
+                        min-height: 100vh;
+                    }
+                </style>
+                `;
+                
+                // Masukin sebelum </head>
+                if (htmlContent.includes('</head>')) {
+                    htmlContent = htmlContent.replace('</head>', `${safeAreaCSS}</head>`);
+                    fs.writeFileSync(indexHtmlPath, htmlContent);
+                    log('CSS Injected Successfully!', 'success');
+                } else {
+                    log('Warning: Could not find </head> tag to inject CSS.', 'error');
+                }
+            } else {
+                log('Warning: index.html not found in root. Skipping CSS injection.', 'info');
+            }
+        }
+        // -----------------------------------
+
         log('Injecting Capacitor...', 'command');
         await runCommand('npm', ['install', '@capacitor/core', '@capacitor/cli', '@capacitor/android', '--save-dev'], projectDir, log);
 
@@ -106,7 +140,7 @@ app.get('/api/build/stream', async (req, res) => {
         log('Adding Android platform...', 'command');
         await runCommand('npx', ['cap', 'add', 'android'], projectDir, log);
 
-        // --- CUSTOMIZATION AREA (THE FIX) ---
+        // --- CUSTOMIZATION AREA ---
         log('Applying custom settings...', 'info');
         const androidManifestPath = path.join(projectDir, 'android/app/src/main/AndroidManifest.xml');
         const stylesPath = path.join(projectDir, 'android/app/src/main/res/values/styles.xml');
@@ -121,26 +155,21 @@ app.get('/api/build/stream', async (req, res) => {
             await runCommand(`sed -i 's/<activity/<activity android:screenOrientation="${finalOrientation}"/g' ${androidManifestPath}`, [], projectDir, log);
         }
 
-        // 3. LAYOUT FIX (INI YANG PENTING)
+        // 3. LAYOUT FIX
         if (isFullscreen) {
-            // MODE GAME (Bablas)
             log('Mode: Fullscreen (Immersive)', 'info');
             await runCommand(`sed -i 's|parent="AppTheme.NoActionBar"|parent="Theme.AppCompat.NoActionBar.FullScreen"|g' ${stylesPath}`, [], projectDir, log);
             await runCommand(`sed -i 's|<\/style>|<item name="android:windowFullscreen">true<\/item><\/style>|g' ${stylesPath}`, [], projectDir, log);
         } else {
-            // MODE APLIKASI BIASA (Safe Area)
             log('Mode: Safe Area (Solid Status Bar)', 'info');
-            
-            // Kita suntikkan item-item sakti dari ChatGPT tadi ke dalam styles.xml
-            // Menggunakan sed untuk menyisipkan sebelum tag penutup </style>
             const styleFix = [
-                '<item name="android:windowTranslucentStatus">false</item>', // Status bar TIDAK transparan
-                '<item name="android:fitsSystemWindows">true</item>',         // Konten turun ke bawah status bar
-                '<item name="android:statusBarColor">@android:color/black</item>', // Warna status bar hitam
-                '<item name="android:windowLightStatusBar">false</item>'      // Icon status bar putih
+                '<item name="android:windowFullscreen">false</item>',
+                '<item name="android:windowTranslucentStatus">false</item>',
+                '<item name="android:fitsSystemWindows">true</item>',
+                '<item name="android:statusBarColor">@android:color/black</item>',
+                '<item name="android:windowLightStatusBar">false</item>'
             ].join('');
-
-            // Perintah sed sakti
+            await runCommand(`sed -i 's|parent="AppTheme.NoActionBar"|parent="Theme.AppCompat.NoActionBar"|g' ${stylesPath}`, [], projectDir, log);
             await runCommand(`sed -i 's|<\/style>|${styleFix}<\/style>|g' ${stylesPath}`, [], projectDir, log);
         }
 
