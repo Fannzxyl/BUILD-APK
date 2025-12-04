@@ -1,0 +1,5 @@
+{
+  "name": "AppBuilder-AI",
+  "description": "SaaS platform to convert GitHub repositories into Android APKs using Capacitor and Gradle.",
+  "requestFramePermissions": []
+}
