@@ -12,6 +12,7 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = process.env.PORT || 7860;
 
+// Limit besar buat upload gambar
 app.use(express.json({ limit: '50mb' }) as any);
 app.use(express.urlencoded({ limit: '50mb', extended: true }) as any);
 
@@ -27,7 +28,7 @@ const PUBLIC_DIR = path.join(__dirname, 'public');
 if (!fs.existsSync(WORKSPACE_DIR)) fs.mkdirSync(WORKSPACE_DIR, { recursive: true, mode: 0o777 });
 if (!fs.existsSync(PUBLIC_DIR)) fs.mkdirSync(PUBLIC_DIR, { recursive: true, mode: 0o777 });
 
-app.get('/', (req, res) => { res.status(200).send('AppBuilder-AI v4.1 (Icon Fix) is Running. 🚀'); });
+app.get('/', (req, res) => { res.status(200).send('AppBuilder-AI v4.2 (Icon Fix: Delete Adaptive XML) is Running. 🚀'); });
 app.use('/download', express.static(PUBLIC_DIR) as any);
 
 const sendEvent = (res: any, data: any) => {
@@ -176,11 +177,20 @@ app.post('/api/build/stream', async (req, res) => {
         updateStatus('ANDROID_SYNC');
         await runCommand('npx', ['cap', 'sync'], projectDir, log);
 
-        // ✅ FIX: PINDAHKAN LOGIKA ICON KESINI (SETELAH SYNC)
+        // ✅ LOGIKA ICON BARU (HAPUS XML ADAPTIVE)
         if (iconUrl && typeof iconUrl === 'string') {
             const resDir = path.join(projectDir, 'android/app/src/main/res');
             const folders = ['mipmap-mdpi', 'mipmap-hdpi', 'mipmap-xhdpi', 'mipmap-xxhdpi', 'mipmap-xxxhdpi'];
             
+            // 1. HAPUS FOLDER ADAPTIVE ICON (PENTING!)
+            // Ini biar Android dipaksa baca PNG yang kita upload, bukan XML bawaan
+            const adaptiveIconDir = path.join(resDir, 'mipmap-anydpi-v26');
+            if (fs.existsSync(adaptiveIconDir)) {
+                fs.rmSync(adaptiveIconDir, { recursive: true, force: true });
+                log('Removed default adaptive icons to force custom icon.', 'info');
+            }
+
+            // 2. PROSES GAMBAR
             if (iconUrl.startsWith('http')) {
                 log('Downloading custom icon from URL...', 'command');
                 for (const folder of folders) {
