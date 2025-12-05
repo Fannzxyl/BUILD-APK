@@ -1,9 +1,10 @@
 import React, { useState, useCallback } from 'react';
 import { BuildForm } from './components/BuildForm';
 import { Terminal } from './components/Terminal';
-import { StatusSteps } from './components/StatusSteps';
+import LightRays from './components/LightRays';
+import BlurText from './components/BlurText';
 import { BuildStatus, LogEntry } from './types';
-import { Layers, Rocket, Code2, Cpu } from 'lucide-react';
+import { Layers, Download, Zap, ShieldCheck, Cpu } from 'lucide-react';
 
 const ENV_URL = process.env.NEXT_PUBLIC_BACKEND_URL;
 const FALLBACK_URL = 'https://fanlley-apk-builder.hf.space';
@@ -19,7 +20,7 @@ export default function App() {
       ...prev,
       {
         id: Math.random().toString(36).substring(7),
-        timestamp: new Date().toLocaleTimeString(),
+        timestamp: new Date().toLocaleTimeString('en-US', { hour12: false }),
         message,
         type,
       },
@@ -31,11 +32,11 @@ export default function App() {
     setLogs([]);
     setApkUrl(undefined);
     
-    addLog(`Initiating build for: ${formData.repoUrl}`, 'info');
-    addLog(`⚙️ Config: ${formData.appName} (v${formData.versionName}) | Fullscreen: ${formData.fullscreen}`, 'info');
+    addLog(`Initiating build sequence for: ${formData.repoUrl}`, 'info');
+    addLog(`Target: ${formData.appName} (v${formData.versionName}) | Mode: ${formData.fullscreen ? 'Immersive' : 'Standard'}`, 'warning');
 
     try {
-      addLog(`Connecting to Build Server at ${API_BASE_URL}...`, 'info');
+      addLog(`Establishing secure connection to ${API_BASE_URL}...`, 'info');
       
       const params = new URLSearchParams({
         repoUrl: formData.repoUrl,
@@ -52,7 +53,7 @@ export default function App() {
       const eventSource = new EventSource(streamUrl);
 
       eventSource.onopen = () => {
-        addLog('Connected to Cloud Build Engine. Sending configuration...', 'success');
+        addLog('Connection established. Handshaking with build engine...', 'success');
       };
 
       eventSource.onmessage = (event) => {
@@ -62,27 +63,26 @@ export default function App() {
           if (data.type === 'log') {
             addLog(data.log.message, data.log.type);
           } else if (data.type === 'status') {
-            switch (data.status) {
-                case 'CLONING': setStatus(BuildStatus.CLONING); break;
-                case 'INSTALLING': setStatus(BuildStatus.INSTALLING); break;
-                case 'BUILDING_WEB': setStatus(BuildStatus.BUILDING_WEB); break;
-                case 'CAPACITOR_INIT': 
-                case 'ANDROID_SYNC': 
-                    setStatus(BuildStatus.CAPACITOR); 
-                    break;
-                case 'COMPILING_APK': setStatus(BuildStatus.GRADLE); break;
-                case 'SUCCESS': setStatus(BuildStatus.SUCCESS); break;
-                case 'ERROR': setStatus(BuildStatus.ERROR); break;
-                default: break;
-            }
+            const statusMap: Record<string, BuildStatus> = {
+                'CLONING': BuildStatus.CLONING,
+                'INSTALLING': BuildStatus.INSTALLING,
+                'BUILDING_WEB': BuildStatus.BUILDING_WEB,
+                'CAPACITOR_INIT': BuildStatus.CAPACITOR_INIT,
+                'ANDROID_SYNC': BuildStatus.ANDROID_SYNC,
+                'COMPILING_APK': BuildStatus.COMPILING_APK,
+                'SUCCESS': BuildStatus.SUCCESS,
+                'ERROR': BuildStatus.ERROR
+            };
+            if(statusMap[data.status]) setStatus(statusMap[data.status]);
+            
           } else if (data.type === 'result') {
             if (data.success) {
               setApkUrl(data.downloadUrl);
               setStatus(BuildStatus.SUCCESS);
-              addLog('Build completed successfully! APK is ready.', 'success');
+              addLog('Build pipeline completed successfully. Artifact ready.', 'success');
             } else {
               setStatus(BuildStatus.ERROR);
-              addLog(`Build failed: ${data.error}`, 'error');
+              addLog(`Build pipeline failed: ${data.error}`, 'error');
             }
             eventSource.close();
           } else if (data.type === 'error') {
@@ -96,11 +96,10 @@ export default function App() {
       };
 
       eventSource.onerror = (err) => {
-        console.error('EventSource failed:', err);
         eventSource.close();
         if (status !== BuildStatus.SUCCESS) {
           setStatus(BuildStatus.ERROR);
-          addLog('Connection to build server lost.', 'error');
+          addLog('Connection to build server lost (Timeout/Network Error).', 'error');
         }
       };
 
@@ -111,57 +110,120 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-zinc-900 via-zinc-950 to-black text-zinc-100 selection:bg-brand-500/30">
-      <header className="border-b border-zinc-800 bg-zinc-950/50 backdrop-blur-md sticky top-0 z-50">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="p-2 bg-gradient-to-tr from-brand-600 to-indigo-600 rounded-lg shadow-lg shadow-brand-500/20">
-              <Layers className="h-6 w-6 text-white" />
+    <div className="min-h-screen bg-[#030305] text-zinc-100 selection:bg-brand-500/30 relative overflow-x-hidden font-sans">
+      
+      {/* === BACKGROUND LIGHT RAYS === */}
+      <div className="fixed inset-0 z-0 pointer-events-none">
+         <LightRays
+            raysOrigin="top-center"
+            raysColor="#6366f1"
+            raysSpeed={1.0}
+            lightSpread={2.5}
+            rayLength={1.5}
+            followMouse={true}
+            mouseInfluence={0.2}
+            noiseAmount={0.03}
+            distortion={0.1}
+         />
+      </div>
+
+      {/* === AMBIENT GLOW === */}
+      <div className="fixed top-[-10%] left-1/2 -translate-x-1/2 w-[800px] h-[500px] bg-brand-500/15 blur-[120px] rounded-full pointer-events-none z-0"></div>
+
+      {/* === HEADER === */}
+      <header className="border-b border-white/5 bg-black/20 backdrop-blur-md sticky top-0 z-50">
+        <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
+          <div className="flex items-center gap-3 group cursor-pointer">
+            <div className="p-2 bg-gradient-to-br from-brand-500 to-indigo-600 rounded-xl shadow-lg shadow-brand-500/30 group-hover:shadow-brand-500/50 transition-all">
+                <Layers className="h-5 w-5 text-white" />
             </div>
-            <span className="text-xl font-bold tracking-tight">
-              AppBuilder<span className="text-brand-500">.AI</span>
-            </span>
+            <span className="text-xl font-bold tracking-tight">AppBuilder<span className="text-brand-400">.AI</span></span>
           </div>
-          <div className="flex items-center gap-4 text-sm font-medium text-zinc-400">
-            <div className="flex items-center gap-1.5 hidden md:flex"><Code2 size={14} /><span>React</span></div>
-            <div className="flex items-center gap-1.5 hidden md:flex"><Cpu size={14} /><span>Node.js</span></div>
-            <div className="flex items-center gap-1.5 hidden md:flex"><Rocket size={14} /><span>Capacitor</span></div>
-            <div className="h-4 w-px bg-zinc-800 hidden md:block"></div>
-            <span className="text-xs px-2 py-1 rounded-full bg-emerald-500/10 text-emerald-500 border border-emerald-500/20">Cloud Engine Ready</span>
+          
+          <div className="hidden md:flex items-center gap-6 text-xs font-mono text-zinc-400">
+             <div className="flex items-center gap-2">
+                <Cpu className="w-4 h-4" />
+                <span>v2.0.4-beta</span>
+             </div>
+             <div className="flex items-center gap-2 px-3 py-1 bg-emerald-500/10 border border-emerald-500/20 rounded-full text-emerald-400">
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                </span>
+                <span>Systems Operational</span>
+             </div>
           </div>
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-        <div className="text-center mb-12 space-y-4">
-          <h1 className="text-4xl md:text-5xl font-extrabold tracking-tight text-white mb-4">
-            Turn your <span className="text-transparent bg-clip-text bg-gradient-to-r from-brand-400 to-indigo-400">Web App</span> into an <span className="text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-teal-400">APK</span>
+      <main className="relative z-10 max-w-5xl mx-auto px-4 py-16">
+        
+        {/* === HERO SECTION === */}
+        <div className="text-center mb-16 space-y-4 animate-in fade-in slide-in-from-bottom-8 duration-700">
+          <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-brand-500/10 border border-brand-500/20 text-sm text-brand-200 mb-4 hover:bg-brand-500/20 transition-colors cursor-default shadow-[0_0_20px_rgba(99,102,241,0.2)]">
+            <Zap className="w-4 h-4 text-yellow-300 fill-yellow-300" />
+            <span>Powered by CapacitorJS & Cloud Build Engine</span>
+          </div>
+          
+          {/* ✅ JUDUL DENGAN BLUR TEXT ANIMATION (FIXED) */}
+          <h1 className="text-5xl md:text-7xl font-extrabold tracking-tight drop-shadow-2xl flex flex-wrap justify-center gap-x-4 gap-y-2">
+             <BlurText 
+                text="Web to APK" 
+                delay={150} 
+                animateBy="words" 
+                direction="top" 
+                className="text-white"
+             />
+             <BlurText 
+                text="Generator" 
+                delay={500}
+                animateBy="words" 
+                direction="top" 
+                // 👇 Pake warna solid + glow biar pasti muncul
+                className="text-indigo-400 drop-shadow-[0_0_15px_rgba(129,140,248,0.6)]"
+             />
           </h1>
-          <p className="text-lg text-zinc-400 max-w-2xl mx-auto">
-            Automated CI/CD pipeline powered by Capacitor & Gradle. 
-            Customize your App Name, Icon, Version, and Layout instantly.
+
+          <p className="text-zinc-300 text-lg md:text-xl max-w-2xl mx-auto leading-relaxed">
+            Transform your React, Vue, or Angular projects into production-ready Android applications in minutes. No Android Studio required.
           </p>
         </div>
 
-        <StatusSteps currentStatus={status} />
+        {/* === FORM WIZARD === */}
         <BuildForm onBuild={handleBuild} status={status} apkUrl={apkUrl} />
 
-        <div className="mt-12 max-w-5xl mx-auto">
-          <div className="mb-4 flex items-center justify-between">
-            <h2 className="text-lg font-semibold text-zinc-200">Build Logs</h2>
-            <div className="flex gap-2">
-               <span className="w-3 h-3 rounded-full bg-red-500 block"></span>
-               <span className="w-3 h-3 rounded-full bg-yellow-500 block"></span>
-               <span className="w-3 h-3 rounded-full bg-green-500 block"></span>
+        {/* === RESULT AREA === */}
+        {(status !== BuildStatus.IDLE || logs.length > 0) && (
+            <div className="space-y-8 mt-12">
+                {status === BuildStatus.SUCCESS && apkUrl && (
+                    <div className="animate-in zoom-in-95 duration-500 bg-gradient-to-r from-emerald-900/40 to-black border border-emerald-500/30 rounded-3xl p-8 flex flex-col md:flex-row items-center justify-between gap-6 shadow-[0_0_50px_rgba(16,185,129,0.1)]">
+                        <div className="flex items-start gap-4">
+                            <div className="p-3 bg-emerald-500/20 rounded-2xl border border-emerald-500/30">
+                                <ShieldCheck className="w-8 h-8 text-emerald-400" />
+                            </div>
+                            <div>
+                                <h3 className="text-2xl font-bold text-white mb-1">Build Successful!</h3>
+                                <p className="text-emerald-200/60">Your APK has been compiled, signed, and is ready for deployment.</p>
+                            </div>
+                        </div>
+                        <a 
+                            href={apkUrl} 
+                            className="w-full md:w-auto px-8 py-4 bg-emerald-500 hover:bg-emerald-400 text-black font-bold text-lg rounded-xl flex items-center justify-center gap-3 transition-all hover:scale-105 shadow-lg shadow-emerald-500/20"
+                        >
+                            <Download className="w-5 h-5" /> 
+                            Download APK
+                        </a>
+                    </div>
+                )}
+                <Terminal logs={logs} status={status} />
             </div>
-          </div>
-          <Terminal logs={logs} />
-        </div>
+        )}
+
       </main>
       
-      <footer className="py-8 border-t border-zinc-900 mt-20 text-center text-zinc-600 text-sm">
-        <p>© 2024 AppBuilder-AI. Powered by Node.js, Capacitor, and Gradle.</p>
+      <footer className="py-8 text-center text-zinc-600 text-sm relative z-10">
+        <p>&copy; 2025 AppBuilder AI. All systems nominal.</p>
       </footer>
     </div>
   );
-}
+} 

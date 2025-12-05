@@ -14,7 +14,8 @@ export interface LogEntry {
   id: string;
   timestamp: string;
   message: string;
-  type: 'info' | 'error' | 'success' | 'command';
+  // 👇 Udah ditambahin 'warning' disini biar errornya ilang
+  type: 'info' | 'error' | 'success' | 'command' | 'warning';
 }
 
 export interface BuildResponse {
