@@ -15,11 +15,13 @@ const PORT = process.env.PORT || 7860;
 app.use(express.json({ limit: '50mb' }) as any);
 app.use(express.urlencoded({ limit: '50mb', extended: true }) as any);
 
-app.use(cors({
-  origin: '*',
-  methods: ['GET', 'POST'],
-  allowedHeaders: ['Content-Type'],
-}));
+app.use(
+  cors({
+    origin: '*',
+    methods: ['GET', 'POST'],
+    allowedHeaders: ['Content-Type'],
+  }),
+);
 
 const WORKSPACE_DIR = path.join(__dirname, 'workspace');
 const PUBLIC_DIR = path.join(__dirname, 'public');
@@ -32,7 +34,9 @@ if (!fs.existsSync(PUBLIC_DIR)) {
 }
 
 app.get('/', (req, res) => {
-  res.status(200).send('AppBuilder-AI v5.1 (Static + Nested Frontend Fix) is Running. 🚀');
+  res
+    .status(200)
+    .send('AppBuilder-AI v5.2 (Static + Nested Frontend Fix) is Running. 🚀');
 });
 app.use('/download', express.static(PUBLIC_DIR) as any);
 
@@ -107,7 +111,7 @@ function detectBuildOutputDir(baseDir: string): string | null {
   return null;
 }
 
-// Helper: pindahkan file static sederhana ke web/
+// Helper: siapkan web/ untuk static HTML biasa
 function prepareStaticWebFromRoot(projectDir: string, webDirAbs: string) {
   if (!fs.existsSync(webDirAbs)) {
     fs.mkdirSync(webDirAbs, { recursive: true });
@@ -209,14 +213,14 @@ app.post('/api/build/stream', async (req, res) => {
     log(`Cloning ${repoUrl}...`, 'command');
     await runCommand('git', ['clone', repoUrl, '.'], projectDir, log);
 
-    // FINAL TARGET untuk Capacitor SELALU "web"
+    // webDir final untuk Capacitor SELALU "web"
     const webDirRel = 'web';
     const webDirAbs = path.join(projectDir, webDirRel);
     if (!fs.existsSync(webDirAbs)) {
       fs.mkdirSync(webDirAbs, { recursive: true });
     }
 
-    // Deteksi package.json di root atau subfolder
+    // Deteksi package.json di root dan subfolder
     const rootPkgPath = path.join(projectDir, 'package.json');
     const hasRootPkg = fs.existsSync(rootPkgPath);
 
@@ -231,7 +235,7 @@ app.post('/api/build/stream', async (req, res) => {
     }
 
     if (hasRootPkg) {
-      // MODE 1: Node.js app di root (contoh: bunpou)
+      // MODE 1: Node.js app di root
       log('✅ Detected package.json at project root. Using Node.js Build Mode.', 'success');
 
       updateStatus('INSTALLING');
@@ -250,7 +254,10 @@ app.post('/api/build/stream', async (req, res) => {
           log(`Copying build output from ./${outDirName} to ./web ...`, 'info');
           copyRecursiveSync(outDirAbs, webDirAbs);
         } else {
-          log('Build output folder not found, fallback copy from project root to ./web.', 'info');
+          log(
+            'Build output folder not found at root, fallback copy from project root to ./web.',
+            'info',
+          );
           prepareStaticWebFromRoot(projectDir, webDirAbs);
         }
       } else {
@@ -258,11 +265,14 @@ app.post('/api/build/stream', async (req, res) => {
         prepareStaticWebFromRoot(projectDir, webDirAbs);
       }
     } else if (nestedAppRel) {
-      // MODE 2: Nested frontend (contoh: python backend + frontend React di ./frontend)
+      // MODE 2: Nested frontend (contoh: ./frontend)
       const nestedAppAbs = path.join(projectDir, nestedAppRel);
       const nestedPkgPath = path.join(nestedAppAbs, 'package.json');
 
-      log(`✅ Detected nested frontend at "./${nestedAppRel}". Using Nested Node.js Build Mode.`, 'success');
+      log(
+        `✅ Detected nested frontend at "./${nestedAppRel}". Using Nested Node.js Build Mode.`,
+        'success',
+      );
 
       updateStatus('INSTALLING');
       log(`Installing dependencies in ./${nestedAppRel} ...`, 'command');
@@ -277,7 +287,10 @@ app.post('/api/build/stream', async (req, res) => {
         const outDirName = detectBuildOutputDir(nestedAppAbs);
         if (outDirName) {
           const outDirAbs = path.join(nestedAppAbs, outDirName);
-          log(`Copying build output from ./${nestedAppRel}/${outDirName} to ./web ...`, 'info');
+          log(
+            `Copying build output from ./${nestedAppRel}/${outDirName} to ./web ...`,
+            'info',
+          );
           copyRecursiveSync(outDirAbs, webDirAbs);
         } else {
           log(
@@ -298,14 +311,24 @@ app.post('/api/build/stream', async (req, res) => {
       log('⚠️ No package.json found. Switching to Static HTML Mode.', 'success');
 
       // Buat package.json dummy agar Capacitor bisa jalan
-      log('Creating dummy package.json...', 'info');
+      log('Creating dummy package.json at project root...', 'info');
       await runCommand('npm', ['init', '-y'], projectDir, log);
 
       log('Moving static assets to ./web ...', 'info');
       prepareStaticWebFromRoot(projectDir, webDirAbs);
     }
 
-    // SAFE-AREA INJECTION (PAKAI ./web/index.html SELALU)
+    // PASTIKAN ROOT SELALU PUNYA package.json SEBELUM CAPACITOR
+    const rootPkgForCap = path.join(projectDir, 'package.json');
+    if (!fs.existsSync(rootPkgForCap)) {
+      log(
+        'Root package.json not found before Capacitor init. Creating dummy package.json...',
+        'info',
+      );
+      await runCommand('npm', ['init', '-y'], projectDir, log);
+    }
+
+    // SAFE-AREA INJECTION di ./web/index.html
     if (!isFullscreen) {
       log('Injecting Safe-Area Logic (Meta + CSS)...', 'info');
       const indexHtmlPath = path.join(webDirAbs, 'index.html');
