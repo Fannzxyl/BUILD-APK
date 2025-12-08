@@ -12,418 +12,621 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = process.env.PORT || 7860;
 
-// Limit gede biar bisa upload icon base64
 app.use(express.json({ limit: '50mb' }) as any);
 app.use(express.urlencoded({ limit: '50mb', extended: true }) as any);
 
-app.use(cors({
+app.use(
+  cors({
     origin: '*',
     methods: ['GET', 'POST'],
-    allowedHeaders: ['Content-Type']
-}));
+    allowedHeaders: ['Content-Type'],
+  })
+);
 
 const WORKSPACE_DIR = path.join(__dirname, 'workspace');
 const PUBLIC_DIR = path.join(__dirname, 'public');
 
-if (!fs.existsSync(WORKSPACE_DIR)) fs.mkdirSync(WORKSPACE_DIR, { recursive: true, mode: 0o777 });
-if (!fs.existsSync(PUBLIC_DIR)) fs.mkdirSync(PUBLIC_DIR, { recursive: true, mode: 0o777 });
+if (!fs.existsSync(WORKSPACE_DIR)) {
+  fs.mkdirSync(WORKSPACE_DIR, { recursive: true, mode: 0o777 });
+}
+if (!fs.existsSync(PUBLIC_DIR)) {
+  fs.mkdirSync(PUBLIC_DIR, { recursive: true, mode: 0o777 });
+}
 
 app.get('/', (req, res) => {
-    res.status(200).send('AppBuilder-AI v5.0 (Ultimate Edition) is Running. 🚀');
+  res
+    .status(200)
+    .send('AppBuilder-AI v5.0 (Node + Static + Safe Area) is Running. 🚀');
 });
 app.use('/download', express.static(PUBLIC_DIR) as any);
 
 const sendEvent = (res: any, data: any) => {
-    res.write(`data: ${JSON.stringify(data)}\n\n`);
+  res.write(`data: ${JSON.stringify(data)}\n\n`);
 };
 
+type LogType = 'info' | 'command' | 'error' | 'success';
+
 function runCommand(
-    command: string,
-    args: string[],
-    cwd: string,
-    logFn?: (msg: string, type: 'info' | 'error' | 'command' | 'success') => void
+  command: string,
+  args: string[],
+  cwd: string,
+  logFn?: (msg: string, type: LogType) => void
 ): Promise<void> {
-    return new Promise((resolve, reject) => {
-        if (logFn) logFn(`${command} ${args.join(' ')}`, 'info');
-        const child = spawn(command, args, {
-            cwd,
-            shell: true,
-            env: { ...process.env, CI: 'true', TERM: 'dumb' }
-        });
-
-        child.stdout.on('data', (data) => {
-            const lines = data.toString().split('\n');
-            lines.forEach((line: string) => {
-                if (line.trim() && logFn) logFn(line.trim(), 'info');
-            });
-        });
-
-        child.stderr.on('data', (data) => {
-            const lines = data.toString().split('\n');
-            lines.forEach((line: string) => {
-                if (line.trim() && logFn) logFn(line.trim(), 'info');
-            });
-        });
-
-        child.on('close', (code) => {
-            if (code === 0) resolve();
-            else reject(new Error(`Command "${command}" failed with exit code ${code}`));
-        });
-        child.on('error', (err) => reject(err));
+  return new Promise((resolve, reject) => {
+    if (logFn) logFn(`${command} ${args.join(' ')}`, 'info');
+    const child = spawn(command, args, {
+      cwd,
+      shell: true,
+      env: { ...process.env, CI: 'true', TERM: 'dumb' },
     });
+
+    child.stdout.on('data', (data) => {
+      const lines = data.toString().split('\n');
+      lines.forEach((line: string) => {
+        if (line.trim() && logFn) logFn(line.trim(), 'info');
+      });
+    });
+
+    child.stderr.on('data', (data) => {
+      const lines = data.toString().split('\n');
+      lines.forEach((line: string) => {
+        if (line.trim() && logFn) logFn(line.trim(), 'info');
+      });
+    });
+
+    child.on('close', (code) => {
+      if (code === 0) resolve();
+      else reject(new Error(`Command "${command}" failed with exit code ${code}`));
+    });
+    child.on('error', (err) => reject(err));
+  });
 }
 
+// --- URL NORMALIZATION (hapus /tree/main, /blob/... dan tambahin .git) ---
+const normalizeGitHubUrl = (url: string): string => {
+  let clean = url.trim();
+
+  clean = clean
+    .replace('git@github.com:', 'https://github.com/')
+    .replace('www.github.com', 'github.com');
+
+  clean = clean.split('?')[0].split('#')[0];
+
+  const treeIdx = clean.indexOf('/tree/');
+  const blobIdx = clean.indexOf('/blob/');
+  const idxList = [treeIdx, blobIdx].filter((i) => i !== -1);
+  if (idxList.length > 0) {
+    const cutAt = Math.min(...idxList);
+    clean = clean.slice(0, cutAt);
+  }
+
+  if (!clean.endsWith('.git')) {
+    clean += '.git';
+  }
+
+  return clean;
+};
+
+// --- PINDAH STATIC ASSETS KE /web TANPA MINDahin package.json ---
+const moveStaticAssetsToWeb = (
+  projectDir: string,
+  log: (m: string, t: LogType) => void
+) => {
+  const webDir = path.join(projectDir, 'web');
+  if (!fs.existsSync(webDir)) {
+    fs.mkdirSync(webDir, { recursive: true });
+  }
+
+  const exts = [
+    '.html',
+    '.htm',
+    '.css',
+    '.js',
+    '.mjs',
+    '.cjs',
+    '.png',
+    '.jpg',
+    '.jpeg',
+    '.gif',
+    '.svg',
+    '.webp',
+    '.ico',
+  ];
+
+  const skipDirs = new Set([
+    'web',
+    'android',
+    'node_modules',
+    '.git',
+    '.github',
+    '.vscode',
+  ]);
+
+  const skipFiles = new Set([
+    'package.json',
+    'package-lock.json',
+    'pnpm-lock.yaml',
+    'yarn.lock',
+  ]);
+
+  const walk = (dir: string, relativeBase = '') => {
+    const entries = fs.readdirSync(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      const fullPath = path.join(dir, entry.name);
+      const relPath = path.join(relativeBase, entry.name);
+
+      // Jangan sentuh /web
+      if (dir === webDir) continue;
+
+      if (entry.isDirectory()) {
+        if (skipDirs.has(entry.name)) continue;
+        walk(fullPath, relPath);
+      } else {
+        if (skipFiles.has(entry.name)) continue;
+
+        const ext = path.extname(entry.name).toLowerCase();
+        if (exts.includes(ext)) {
+          const targetPath = path.join(webDir, relPath);
+          const targetDir = path.dirname(targetPath);
+          if (!fs.existsSync(targetDir)) {
+            fs.mkdirSync(targetDir, { recursive: true });
+          }
+          fs.renameSync(fullPath, targetPath);
+        }
+      }
+    }
+  };
+
+  walk(projectDir);
+  log('Static HTML assets moved into /web', 'info');
+};
+
+// --- PASTIKAN ADA web/index.html (rename / redirect) ---
+const ensureWebIndexHtml = (
+  projectDir: string,
+  log: (m: string, t: LogType) => void
+) => {
+  const webDir = path.join(projectDir, 'web');
+  const indexPath = path.join(webDir, 'index.html');
+
+  if (fs.existsSync(indexPath)) {
+    log('index.html already exists in web/, skipping ensure step.', 'info');
+    return;
+  }
+
+  if (!fs.existsSync(webDir)) {
+    log('web/ directory does not exist, cannot ensure index.html.', 'error');
+    return;
+  }
+
+  // Cari semua .html di bawah web/
+  const htmlFiles: string[] = [];
+
+  const walk = (dir: string, base = '') => {
+    const entries = fs.readdirSync(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      const full = path.join(dir, entry.name);
+      const rel = path.join(base, entry.name);
+      if (entry.isDirectory()) {
+        walk(full, rel);
+      } else if (entry.isFile() && entry.name.toLowerCase().endsWith('.html')) {
+        htmlFiles.push(rel);
+      }
+    }
+  };
+
+  walk(webDir);
+
+  if (htmlFiles.length === 0) {
+    log('No HTML files found in web/. Cannot create index.html.', 'error');
+    return;
+  }
+
+  // Prioritas: file di root web/ (relPath tanpa slash)
+  const rootHtml = htmlFiles.find((rel) => !rel.includes(path.sep));
+  if (rootHtml) {
+    const srcPath = path.join(webDir, rootHtml);
+    fs.renameSync(srcPath, indexPath);
+    log(`Renamed ${rootHtml} to index.html in web/`, 'info');
+    return;
+  }
+
+  // Kalau semua di subfolder → bikin index.html yang auto redirect
+  const target = htmlFiles[0].replace(/\\/g, '/'); // path relatif untuk href
+  const redirectHtml = `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Redirecting...</title>
+    <meta http-equiv="refresh" content="0; url=./${target}" />
+    <script>window.location.href = './${target}';</script>
+  </head>
+  <body>
+    <p>Loading...</p>
+  </body>
+</html>
+`;
+  fs.writeFileSync(indexPath, redirectHtml);
+  log(`Created index.html redirecting to ./${target}`, 'info');
+};
+
+// --- INJECT SAFE AREA CSS KE index.html DI webDir ---
+const injectSafeAreaMetaAndCss = (
+  projectDir: string,
+  webDir: string,
+  isFullscreen: boolean,
+  log: (m: string, t: LogType) => void
+) => {
+  if (isFullscreen) return;
+
+  log('Injecting Safe-Area Logic (Meta + CSS)...', 'info');
+
+  const indexHtmlPath = path.join(projectDir, webDir, 'index.html');
+  if (!fs.existsSync(indexHtmlPath)) {
+    log(`index.html not found in ${webDir}, skipping safe-area injection.`, 'error');
+    return;
+  }
+
+  let htmlContent = fs.readFileSync(indexHtmlPath, 'utf-8');
+
+  if (htmlContent.includes('<meta name="viewport"')) {
+    htmlContent = htmlContent.replace(
+      '<meta name="viewport" content="',
+      '<meta name="viewport" content="viewport-fit=cover, '
+    );
+  } else if (htmlContent.includes('<head>')) {
+    htmlContent = htmlContent.replace(
+      '<head>',
+      '<head><meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">'
+    );
+  }
+
+  const safeAreaCSS = `
+  <style>
+    :root {
+      --sat: env(safe-area-inset-top, 35px);
+    }
+    body {
+      padding-top: var(--sat) !important;
+      background-color: #000000;
+      min-height: 100vh;
+      box-sizing: border-box;
+    }
+    #root, #app, #__next {
+      padding-top: 0px !important;
+      min-height: 100vh;
+    }
+    header, nav, .fixed-top {
+      margin-top: var(--sat) !important;
+    }
+  </style>
+  `;
+
+  if (htmlContent.includes('</head>')) {
+    htmlContent = htmlContent.replace('</head>', `${safeAreaCSS}</head>`);
+  }
+
+  fs.writeFileSync(indexHtmlPath, htmlContent);
+  log('Safe-Area Logic Injected Successfully!', 'success');
+};
+
 app.post('/api/build/stream', async (req, res) => {
-    const { repoUrl, appName, appId, orientation, iconUrl, fullscreen, versionCode, versionName } = req.body;
+  const {
+    repoUrl,
+    appName,
+    appId,
+    orientation,
+    iconUrl,
+    fullscreen,
+    versionCode,
+    versionName,
+  } = req.body;
 
-    res.setHeader('Content-Type', 'text/event-stream');
-    res.setHeader('Cache-Control', 'no-cache');
-    res.setHeader('Connection', 'keep-alive');
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
 
-    if (!repoUrl || typeof repoUrl !== 'string') {
-        sendEvent(res, { type: 'error', message: 'No Repository URL provided' });
-        res.end();
-        return;
+  if (!repoUrl || typeof repoUrl !== 'string') {
+    sendEvent(res, { type: 'error', message: 'No Repository URL provided' });
+    res.end();
+    return;
+  }
+
+  const finalAppName = (appName as string) || 'My App';
+  const finalAppId = (appId as string) || 'com.appbuilder.generated';
+  const finalOrientation = (orientation as string) || 'portrait';
+  const isFullscreen = fullscreen === true || fullscreen === 'true';
+  const vCode = (versionCode as string) || '1';
+  const vName = (versionName as string) || '1.0';
+
+  const buildId = uuidv4();
+  const projectDir = path.join(WORKSPACE_DIR, buildId);
+
+  const log = (message: string, type: LogType = 'info') => {
+    sendEvent(res, {
+      type: 'log',
+      log: {
+        id: uuidv4(),
+        timestamp: new Date().toLocaleTimeString(),
+        message,
+        type,
+      },
+    });
+  };
+  const updateStatus = (status: string) => {
+    sendEvent(res, { type: 'status', status });
+  };
+
+  try {
+    if (!fs.existsSync(projectDir)) {
+      fs.mkdirSync(projectDir, { recursive: true });
     }
 
-    const finalAppName = (appName as string) || 'My App';
-    const finalAppId = (appId as string) || 'com.appbuilder.generated';
-    const finalOrientation = (orientation as string) || 'portrait';
-    const isFullscreen = fullscreen === true || fullscreen === 'true';
-    const vCode = (versionCode as string) || '1';
-    const vName = (versionName as string) || '1.0';
+    log(`Starting build process ID: ${buildId}`, 'info');
+    log(`Config: ${finalAppName} | Fullscreen: ${isFullscreen}`, 'info');
 
-    const buildId = uuidv4();
-    const projectDir = path.join(WORKSPACE_DIR, buildId);
+    updateStatus('CLONING');
+    const normalizedRepoUrl = normalizeGitHubUrl(repoUrl);
+    log(`Cloning ${normalizedRepoUrl}...`, 'command');
+    await runCommand('git', ['clone', normalizedRepoUrl, '.'], projectDir, log);
 
-    const log = (
-        message: string,
-        type: 'info' | 'command' | 'error' | 'success' = 'info'
-    ) => {
-        sendEvent(res, {
-            type: 'log',
-            log: {
-                id: uuidv4(),
-                timestamp: new Date().toLocaleTimeString(),
-                message,
-                type
-            }
-        });
-    };
-    const updateStatus = (status: string) => {
-        sendEvent(res, { type: 'status', status });
-    };
+    const pkgPath = path.join(projectDir, 'package.json');
+    const hasPackageJson = fs.existsSync(pkgPath);
 
-    try {
-        if (!fs.existsSync(projectDir)) fs.mkdirSync(projectDir, { recursive: true });
+    let webDir = 'dist';
 
-        log(`Starting build process ID: ${buildId}`, 'info');
-        log(`Config: ${finalAppName} | Fullscreen: ${isFullscreen}`, 'info');
+    if (hasPackageJson) {
+      // MODE NODE.JS / MODERN
+      log('✅ Detected package.json. Using Node.js Build Mode.', 'success');
 
-        // 1) Clone repo
-        updateStatus('CLONING');
-        log(`Cloning ${repoUrl}...`, 'command');
-        await runCommand('git', ['clone', repoUrl, '.'], projectDir, log);
+      updateStatus('INSTALLING');
+      log('Installing dependencies...', 'command');
+      await runCommand('npm', ['install'], projectDir, log);
 
-        // 2) Deteksi mode: Node.js (ada package.json) vs Static HTML
-        const pkgPath = path.join(projectDir, 'package.json');
-        const hasPackageJson = fs.existsSync(pkgPath);
+      updateStatus('BUILDING_WEB');
+      const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
 
-        // default webDir untuk project modern
-        let webDir = 'dist';
+      if (pkg.scripts && pkg.scripts.build) {
+        log('Running build script...', 'command');
+        await runCommand('npm', ['run', 'build'], projectDir, log);
 
-        if (hasPackageJson) {
-            // MODE NODE / REACT / VUE
-            log('✅ Detected package.json. Using Node.js Build Mode.', 'success');
+        const distDir = path.join(projectDir, 'dist');
+        const buildDir = path.join(projectDir, 'build');
+        const outDir = path.join(projectDir, 'out');
+        const docsDir = path.join(projectDir, 'docs');
 
-            updateStatus('INSTALLING');
-            log('Installing dependencies...', 'command');
-            await runCommand('npm', ['install'], projectDir, log);
-
-            updateStatus('BUILDING_WEB');
-            const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
-
-            if (pkg.scripts && pkg.scripts.build) {
-                log('Running build script...', 'command');
-                await runCommand('npm', ['run', 'build'], projectDir, log);
-
-                // Auto detect output folder
-                if (fs.existsSync(path.join(projectDir, 'dist'))) webDir = 'dist';
-                else if (fs.existsSync(path.join(projectDir, 'build'))) webDir = 'build';
-                else if (fs.existsSync(path.join(projectDir, 'out'))) webDir = 'out';
-                else {
-                    // fallback: root
-                    webDir = '.';
-                    log('Build output folder not found, fallback to root (.).', 'info');
-                }
-            } else {
-                log('No build script found. Using root directory as webDir.', 'info');
-                webDir = '.';
-            }
+        if (fs.existsSync(distDir)) {
+          webDir = 'dist';
+        } else if (fs.existsSync(buildDir)) {
+          webDir = 'build';
+        } else if (fs.existsSync(outDir)) {
+          webDir = 'out';
+        } else if (fs.existsSync(docsDir)) {
+          webDir = 'docs';
+          log('Detected docs/ as build output (Vite GitHub Pages).', 'info');
         } else {
-            // MODE STATIC HTML / GAME SEDERHANA
-            log('⚠️ No package.json found. Switching to Static HTML Mode.', 'success');
-            log('Skipping npm install & build. Using raw files.', 'info');
-
-            // Bikin package.json dummy biar npm & Capacitor gak error
-            await runCommand('npm', ['init', '-y'], projectDir, log);
-
-            // Kita pakai folder "web" sebagai webDir
-            webDir = 'web';
-            const webDirPath = path.join(projectDir, webDir);
-            if (!fs.existsSync(webDirPath)) {
-                fs.mkdirSync(webDirPath);
-            }
-
-            // Pindahkan semua file/folder web ke dalam "web" (kecuali yang penting)
-            const blacklist = new Set([
-                'web',
-                'android',
-                'node_modules',
-                '.git',
-                'workspace',
-                'public',
-                'package.json',
-                'package-lock.json',
-                'pnpm-lock.yaml',
-                'yarn.lock'
-            ]);
-
-            const entries = fs.readdirSync(projectDir);
-
-            for (const entry of entries) {
-                if (blacklist.has(entry)) continue;
-
-                const fromPath = path.join(projectDir, entry);
-                const toPath = path.join(webDirPath, entry);
-
-                fs.renameSync(fromPath, toPath);
-            }
-
-            log(`Static HTML assets moved into /${webDir}`, 'info');
+          log(
+            'Build output folder not found (dist/build/out/docs).',
+            'error'
+          );
+          throw new Error(
+            'Build succeeded, but no supported output folder (dist/build/out/docs) was found.'
+          );
         }
-
-        // 3) Inject Safe Area (biar gak nabrak status bar)
-        if (!isFullscreen) {
-            log('Injecting Safe-Area Logic (Meta + CSS)...', 'info');
-            const indexHtmlPath =
-                webDir === '.'
-                    ? path.join(projectDir, 'index.html')
-                    : path.join(projectDir, webDir, 'index.html');
-
-            if (fs.existsSync(indexHtmlPath)) {
-                let htmlContent = fs.readFileSync(indexHtmlPath, 'utf-8');
-
-                // Inject viewport-fit=cover
-                if (htmlContent.includes('<meta name="viewport"')) {
-                    htmlContent = htmlContent.replace(
-                        '<meta name="viewport" content="',
-                        '<meta name="viewport" content="viewport-fit=cover, '
-                    );
-                } else {
-                    htmlContent = htmlContent.replace(
-                        '<head>',
-                        '<head><meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">'
-                    );
-                }
-
-                // Inject CSS padding safe area
-                const safeAreaCSS = `
-                <style>
-                    :root { --sat: env(safe-area-inset-top, 35px); }
-                    body {
-                        padding-top: var(--sat) !important;
-                        background-color: #000000;
-                        min-height: 100vh;
-                        box-sizing: border-box;
-                    }
-                    #root, #app, #__next { padding-top: 0px !important; }
-                </style>
-                `;
-
-                if (htmlContent.includes('</head>')) {
-                    htmlContent = htmlContent.replace('</head>', `${safeAreaCSS}</head>`);
-                    fs.writeFileSync(indexHtmlPath, htmlContent);
-                    log('Safe-Area Logic Injected Successfully!', 'success');
-                }
-            } else {
-                log('index.html not found for Safe-Area injection.', 'error');
-            }
-        }
-
-        // 4) Install Capacitor
-        log('Injecting Capacitor...', 'command');
-        await runCommand(
-            'npm',
-            ['install', '@capacitor/core', '@capacitor/cli', '@capacitor/android', '--save-dev'],
-            projectDir,
-            log
+      } else {
+        log('No "build" script found in package.json.', 'error');
+        throw new Error(
+          'This project has no "build" script; cannot generate APK.'
         );
+      }
+    } else {
+      // MODE STATIC HTML
+      log('⚠️ No package.json found. Switching to Static HTML Mode.', 'success');
+      log('Skipping npm install & build. Using raw static files.', 'info');
 
-        // 5) Init Capacitor
-        updateStatus('CAPACITOR_INIT');
-        log(`Initializing Capacitor (WebDir: ${webDir})...`, 'command');
-        await runCommand(
-            'npx',
-            ['cap', 'init', `"${finalAppName}"`, finalAppId, '--web-dir', webDir],
-            projectDir,
-            log
-        );
+      // package.json dummy di ROOT
+      await runCommand('npm', ['init', '-y'], projectDir, log);
 
-        log('Adding Android platform...', 'command');
-        await runCommand('npx', ['cap', 'add', 'android'], projectDir, log);
+      // pindah aset ke /web
+      moveStaticAssetsToWeb(projectDir, log);
 
-        // 6) Custom Android XML / Gradle
-        log('Applying custom settings...', 'info');
-        const androidManifestPath = path.join(projectDir, 'android/app/src/main/AndroidManifest.xml');
-        const stylesPath = path.join(projectDir, 'android/app/src/main/res/values/styles.xml');
-        const buildGradlePath = path.join(projectDir, 'android/app/build.gradle');
+      // pastikan ada web/index.html
+      ensureWebIndexHtml(projectDir, log);
 
-        // Versioning
-        await runCommand(
-            `sed -i 's/versionCode 1/versionCode ${vCode}/g' ${buildGradlePath}`,
-            [],
-            projectDir
-        );
-        await runCommand(
-            `sed -i 's/versionName "1.0"/versionName "${vName}"/g' ${buildGradlePath}`,
-            [],
-            projectDir
-        );
-
-        // Orientation
-        if (finalOrientation !== 'user') {
-            await runCommand(
-                `sed -i 's/<activity/<activity android:screenOrientation="${finalOrientation}"/g' ${androidManifestPath}`,
-                [],
-                projectDir,
-                log
-            );
-        }
-
-        // Layout (Fullscreen vs Safe Area)
-        if (isFullscreen) {
-            log('Mode: Fullscreen (Immersive)', 'info');
-            await runCommand(
-                `sed -i 's|parent="AppTheme.NoActionBar"|parent="Theme.AppCompat.NoActionBar.FullScreen"|g' ${stylesPath}`,
-                [],
-                projectDir,
-                log
-            );
-            await runCommand(
-                `sed -i 's|</style>|<item name="android:windowFullscreen">true</item></style>|g' ${stylesPath}`,
-                [],
-                projectDir,
-                log
-            );
-        } else {
-            log('Mode: Safe Area (Solid Status Bar)', 'info');
-            const styleFix = [
-                '<item name="android:windowFullscreen">false</item>',
-                '<item name="android:windowTranslucentStatus">false</item>',
-                '<item name="android:fitsSystemWindows">true</item>',
-                '<item name="android:statusBarColor">@android:color/black</item>',
-                '<item name="android:windowLightStatusBar">false</item>'
-            ].join('');
-            await runCommand(
-                `sed -i 's|parent="AppTheme.NoActionBar"|parent="Theme.AppCompat.NoActionBar"|g' ${stylesPath}`,
-                [],
-                projectDir,
-                log
-            );
-            await runCommand(
-                `sed -i 's|</style>|${styleFix}</style>|g' ${stylesPath}`,
-                [],
-                projectDir,
-                log
-            );
-        }
-
-        // 7) Sync Capacitor
-        updateStatus('ANDROID_SYNC');
-        await runCommand('npx', ['cap', 'sync'], projectDir, log);
-
-        // 8) ICON HANDLING (URL & BASE64)
-        if (iconUrl && typeof iconUrl === 'string') {
-            const resDir = path.join(projectDir, 'android/app/src/main/res');
-            const folders = ['mipmap-mdpi', 'mipmap-hdpi', 'mipmap-xhdpi', 'mipmap-xxhdpi', 'mipmap-xxxhdpi'];
-
-            const adaptiveIconDir = path.join(resDir, 'mipmap-anydpi-v26');
-            if (fs.existsSync(adaptiveIconDir)) {
-                fs.rmSync(adaptiveIconDir, { recursive: true, force: true });
-                log('Removed default adaptive icons to force custom icon.', 'info');
-            }
-
-            if (iconUrl.startsWith('http')) {
-                log('Downloading custom icon from URL...', 'command');
-                for (const folder of folders) {
-                    const target = path.join(resDir, folder, 'ic_launcher.png');
-                    const targetRound = path.join(resDir, folder, 'ic_launcher_round.png');
-                    await runCommand(`curl -L "${iconUrl}" -o ${target}`, [], projectDir);
-                    await runCommand(`cp ${target} ${targetRound}`, [], projectDir);
-                }
-            } else if (iconUrl.startsWith('data:image')) {
-                log('Processing uploaded icon (Base64)...', 'command');
-                try {
-                    const base64Data = iconUrl.split(';base64,').pop();
-                    if (base64Data) {
-                        const iconBuffer = Buffer.from(base64Data, 'base64');
-                        const tempIconPath = path.join(projectDir, 'temp_icon.png');
-                        fs.writeFileSync(tempIconPath, iconBuffer);
-
-                        for (const folder of folders) {
-                            const target = path.join(resDir, folder, 'ic_launcher.png');
-                            const targetRound = path.join(resDir, folder, 'ic_launcher_round.png');
-                            fs.copyFileSync(tempIconPath, target);
-                            fs.copyFileSync(tempIconPath, targetRound);
-                        }
-                        log('Custom icon applied successfully!', 'success');
-                    }
-                } catch (err) {
-                    log('Failed to process custom icon. Using default.', 'error');
-                }
-            }
-        }
-
-        // 9) BUILD APK
-        updateStatus('COMPILING_APK');
-        log('Compiling APK with Gradle...', 'command');
-        const androidDir = path.join(projectDir, 'android');
-        await runCommand('chmod', ['+x', 'gradlew'], androidDir, log);
-        await runCommand('./gradlew', ['assembleDebug'], androidDir, log);
-
-        // 10) MOVE APK KE PUBLIC
-        log('Locating generated APK...', 'info');
-        const expectedApkPath = path.join(
-            androidDir,
-            'app/build/outputs/apk/debug/app-debug.apk'
-        );
-
-        if (fs.existsSync(expectedApkPath)) {
-            const publicApkName = `${finalAppName.replace(/\s+/g, '_')}_v${vName}.apk`;
-            const publicApkPath = path.join(PUBLIC_DIR, publicApkName);
-            fs.renameSync(expectedApkPath, publicApkPath);
-
-            const protocol = (req.headers['x-forwarded-proto'] as string) || req.protocol;
-            const host = (req.headers['x-forwarded-host'] as string) || req.get('host');
-            const downloadUrl = `${protocol}://${host}/download/${publicApkName}`;
-
-            updateStatus('SUCCESS');
-            log('APK generated successfully!', 'success');
-            sendEvent(res, { type: 'result', success: true, downloadUrl });
-        } else {
-            throw new Error('APK file not found.');
-        }
-    } catch (error: any) {
-        console.error(error);
-        updateStatus('ERROR');
-        log(error.message || 'Unknown build error', 'error');
-        sendEvent(res, { type: 'result', success: false, error: error.message });
-    } finally {
-        res.end();
+      webDir = 'web';
     }
+
+    // inject safe-area setelah kita yakin index.html exist (atau minimal dicoba)
+    injectSafeAreaMetaAndCss(projectDir, webDir, isFullscreen, log);
+
+    log('Injecting Capacitor...', 'command');
+    await runCommand(
+      'npm',
+      ['install', '@capacitor/core', '@capacitor/cli', '@capacitor/android', '--save-dev'],
+      projectDir,
+      log
+    );
+
+    updateStatus('CAPACITOR_INIT');
+    log(`Initializing Capacitor (WebDir: ${webDir})...`, 'command');
+    await runCommand(
+      'npx',
+      ['cap', 'init', `"${finalAppName}"`, finalAppId, '--web-dir', webDir],
+      projectDir,
+      log
+    );
+
+    log('Adding Android platform...', 'command');
+    await runCommand('npx', ['cap', 'add', 'android'], projectDir, log);
+
+    log('Applying custom settings...', 'info');
+    const androidManifestPath = path.join(
+      projectDir,
+      'android/app/src/main/AndroidManifest.xml'
+    );
+    const stylesPath = path.join(
+      projectDir,
+      'android/app/src/main/res/values/styles.xml'
+    );
+    const buildGradlePath = path.join(
+      projectDir,
+      'android/app/build.gradle'
+    );
+
+    await runCommand(
+      `sed -i 's/versionCode 1/versionCode ${vCode}/g' ${buildGradlePath}`,
+      [],
+      projectDir
+    );
+    await runCommand(
+      `sed -i 's/versionName "1.0"/versionName "${vName}"/g' ${buildGradlePath}`,
+      [],
+      projectDir
+    );
+
+    if (finalOrientation !== 'user') {
+      await runCommand(
+        `sed -i 's/<activity/<activity android:screenOrientation="${finalOrientation}"/g' ${androidManifestPath}`,
+        [],
+        projectDir,
+        log
+      );
+    }
+
+    if (isFullscreen) {
+      log('Mode: Fullscreen (Immersive)', 'info');
+      await runCommand(
+        `sed -i 's|parent="AppTheme.NoActionBar"|parent="Theme.AppCompat.NoActionBar.FullScreen"|g' ${stylesPath}`,
+        [],
+        projectDir,
+        log
+      );
+      await runCommand(
+        `sed -i 's|</style>|<item name="android:windowFullscreen">true</item></style>|g' ${stylesPath}`,
+        [],
+        projectDir,
+        log
+      );
+    } else {
+      log('Mode: Safe Area (Solid Status Bar)', 'info');
+      const styleFix = [
+        '<item name="android:windowFullscreen">false</item>',
+        '<item name="android:windowTranslucentStatus">false</item>',
+        '<item name="android:fitsSystemWindows">true</item>',
+        '<item name="android:statusBarColor">@android:color/black</item>',
+        '<item name="android:windowLightStatusBar">false</item>',
+      ].join('');
+      await runCommand(
+        `sed -i 's|parent="AppTheme.NoActionBar"|parent="Theme.AppCompat.NoActionBar"|g' ${stylesPath}`,
+        [],
+        projectDir,
+        log
+      );
+      await runCommand(
+        `sed -i 's|</style>|${styleFix}</style>|g' ${stylesPath}`,
+        [],
+        projectDir,
+        log
+      );
+    }
+
+    updateStatus('ANDROID_SYNC');
+    await runCommand('npx', ['cap', 'sync'], projectDir, log);
+
+    if (iconUrl && typeof iconUrl === 'string') {
+      const resDir = path.join(projectDir, 'android/app/src/main/res');
+      const folders = [
+        'mipmap-mdpi',
+        'mipmap-hdpi',
+        'mipmap-xhdpi',
+        'mipmap-xxhdpi',
+        'mipmap-xxxhdpi',
+      ];
+
+      const adaptiveIconDir = path.join(resDir, 'mipmap-anydpi-v26');
+      if (fs.existsSync(adaptiveIconDir)) {
+        fs.rmSync(adaptiveIconDir, { recursive: true, force: true });
+        log('Removed default adaptive icons to force custom icon.', 'info');
+      }
+
+      if (iconUrl.startsWith('http')) {
+        log('Downloading custom icon from URL...', 'command');
+        for (const folder of folders) {
+          const target = path.join(resDir, folder, 'ic_launcher.png');
+          const targetRound = path.join(
+            resDir,
+            folder,
+            'ic_launcher_round.png'
+          );
+          await runCommand(`curl -L "${iconUrl}" -o ${target}`, [], projectDir);
+          await runCommand(`cp ${target} ${targetRound}`, [], projectDir);
+        }
+      } else if (iconUrl.startsWith('data:image')) {
+        log('Processing uploaded icon (Base64)...', 'command');
+        try {
+          const base64Data = iconUrl.split(';base64,').pop();
+          if (base64Data) {
+            const iconBuffer = Buffer.from(base64Data, 'base64');
+            const tempIconPath = path.join(projectDir, 'temp_icon.png');
+            fs.writeFileSync(tempIconPath, iconBuffer);
+
+            for (const folder of folders) {
+              const target = path.join(resDir, folder, 'ic_launcher.png');
+              const targetRound = path.join(
+                resDir,
+                folder,
+                'ic_launcher_round.png'
+              );
+              fs.copyFileSync(tempIconPath, target);
+              fs.copyFileSync(tempIconPath, targetRound);
+            }
+            log('Custom icon applied successfully!', 'success');
+          }
+        } catch (err) {
+          log('Failed to process custom icon. Using default.', 'error');
+        }
+      }
+    }
+
+    updateStatus('COMPILING_APK');
+    log('Compiling APK with Gradle...', 'command');
+    const androidDir = path.join(projectDir, 'android');
+    await runCommand('chmod', ['+x', 'gradlew'], androidDir, log);
+    await runCommand('./gradlew', ['assembleDebug'], androidDir, log);
+
+    log('Locating generated APK...', 'info');
+    const expectedApkPath = path.join(
+      androidDir,
+      'app/build/outputs/apk/debug/app-debug.apk'
+    );
+
+    if (fs.existsSync(expectedApkPath)) {
+      const publicApkName = `${finalAppName.replace(/\s+/g, '_')}_v${vName}.apk`;
+      const publicApkPath = path.join(PUBLIC_DIR, publicApkName);
+      fs.renameSync(expectedApkPath, publicApkPath);
+
+      const protocol =
+        (req.headers['x-forwarded-proto'] as string) || req.protocol;
+      const host =
+        (req.headers['x-forwarded-host'] as string) || req.get('host');
+      const downloadUrl = `${protocol}://${host}/download/${publicApkName}`;
+
+      updateStatus('SUCCESS');
+      log('APK generated successfully!', 'success');
+      sendEvent(res, { type: 'result', success: true, downloadUrl });
+    } else {
+      throw new Error('APK file not found.');
+    }
+  } catch (error: any) {
+    console.error(error);
+    updateStatus('ERROR');
+    log(error.message || 'Unknown build error', 'error');
+    sendEvent(res, { type: 'result', success: false, error: error.message });
+  } finally {
+    res.end();
+  }
 });
 
 app.listen(PORT, () => {
-    console.log(`Build Server running on port ${PORT}`);
+  console.log(`Build Server running on port ${PORT}`);
 });
