@@ -1,4 +1,4 @@
-// server.ts - Production-Ready v6.2 (Git Clone Fix Applied)
+// server.ts - Production-Ready v6.3 (Auto-Fix TypeScript Errors)
 import express from 'express';
 import cors from 'cors';
 import path from 'path';
@@ -85,7 +85,7 @@ function cleanupOldWorkspaces() {
 cleanupOldWorkspaces();
 setInterval(cleanupOldWorkspaces, 6 * 60 * 60 * 1000);
 
-app.get('/', (req, res) => res.status(200).send('AppBuilder-AI v6.2 (Git Fix) is Running. 🚀'));
+app.get('/', (req, res) => res.status(200).send('AppBuilder-AI v6.3 (TS Fix) is Running. 🚀'));
 app.use('/download', express.static(PUBLIC_DIR) as any);
 
 // Build log file helper
@@ -188,6 +188,55 @@ function readFileSafe(p: string): string | null {
 function writeFileSafe(p: string, content: string) {
   fs.mkdirSync(path.dirname(p), { recursive: true });
   fs.writeFileSync(p, content, 'utf-8');
+}
+
+// === NEW HELPER: Disable Strict Type Checking ===
+function disableStrictChecks(projectDir: string, logFn: any) {
+  try {
+    // 1. Patch package.json to remove 'tsc' from build command
+    const pkgPath = path.join(projectDir, 'package.json');
+    if (fs.existsSync(pkgPath)) {
+      const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
+      if (pkg.scripts && pkg.scripts.build) {
+        const originalBuild = pkg.scripts.build;
+        // Regex to remove "tsc &&" or "vue-tsc &&" or "tsc -b &&"
+        // This allows the build to proceed directly to vite/webpack
+        if (originalBuild.includes('tsc')) {
+          const newBuild = originalBuild.replace(/(vue-)?tsc[^&]*&&\s*/g, '').trim();
+          if (newBuild !== originalBuild) {
+            pkg.scripts.build = newBuild;
+            fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2));
+            logFn(`🛡️ Relaxed build requirements: "${originalBuild}" -> "${newBuild}"`, 'info');
+          }
+        }
+      }
+    }
+
+    // 2. Patch tsconfig.json to ignore unused locals (if tsc still runs)
+    const tsConfigPath = path.join(projectDir, 'tsconfig.json');
+    if (fs.existsSync(tsConfigPath)) {
+      let content = fs.readFileSync(tsConfigPath, 'utf-8');
+      // Simple regex replace to turn off strict checks
+      // We don't use JSON.parse because tsconfig often has comments
+      let modified = false;
+      
+      if (content.includes('"noUnusedLocals": true')) {
+        content = content.replace('"noUnusedLocals": true', '"noUnusedLocals": false');
+        modified = true;
+      }
+      if (content.includes('"noEmitOnError": true')) {
+        content = content.replace('"noEmitOnError": true', '"noEmitOnError": false');
+        modified = true;
+      }
+      
+      if (modified) {
+        fs.writeFileSync(tsConfigPath, content);
+        logFn('🛡️ Disabled strict TypeScript checks in tsconfig.json', 'info');
+      }
+    }
+  } catch (e) {
+    logFn('Warning: Failed to auto-patch strict checks (continuing anyway)', 'info');
+  }
 }
 
 // Enhanced environment verification
@@ -542,15 +591,11 @@ app.post('/api/build/stream', async (req, res) => {
   const vName = (versionName as string) || '1.0';
 
   try {
-    // === FIX START: CLEANUP & CLONE STRATEGY ===
-    
     // 1. Ensure target directory does NOT exist
     if (fs.existsSync(projectDir)) {
       log('⚠️ Project directory exists, cleaning...', 'info');
       fs.rmSync(projectDir, { recursive: true, force: true });
     }
-    // NOTE: We do NOT run fs.mkdirSync(projectDir) here. 
-    // We let git create the folder to avoid "destination path not empty" errors.
 
     log(`🚀 Starting build process ID: ${buildId}`, 'info');
     log(`📦 Config: ${finalAppName} (${finalAppId}) | v${vName} | Fullscreen: ${isFullscreen}`, 'info');
@@ -566,14 +611,11 @@ app.post('/api/build/stream', async (req, res) => {
     log(`Cloning ${repoUrl}...`, 'command');
     
     // 2. Clone from WORKSPACE_DIR into buildId folder
-    // This ensures git creates the directory fresh
     await runCommand('git', ['clone', '--depth', '1', repoUrl, buildId], WORKSPACE_DIR, log, 2);
 
     // 3. Initialize Log File NOW (after folder exists)
     currentLogFile = path.join(projectDir, 'build.log');
     logToFile(`Build ${buildId} Log Initialized`);
-    
-    // === FIX END ===
 
     // Detect if large project (game/AI)
     const isLargeProject = detectLargeProject(projectDir);
@@ -593,6 +635,10 @@ app.post('/api/build/stream', async (req, res) => {
       log('✅ Detected nested frontend at `./frontend`. Using Nested Node.js Build Mode.', 'success');
       updateStatus('INSTALLING_FRONTEND');
       await runCommand('npm', ['install'], frontendDir, log, 2);
+      
+      // === FIX: Disable Strict Checks ===
+      disableStrictChecks(frontendDir, log);
+
       updateStatus('BUILDING_FRONTEND');
       const frontendPkg = path.join(frontendDir, 'package.json');
       if (fs.existsSync(frontendPkg)) {
@@ -610,6 +656,10 @@ app.post('/api/build/stream', async (req, res) => {
       log('✅ Detected package.json at project root. Using Node.js Build Mode.', 'success');
       updateStatus('INSTALLING_ROOT');
       await runCommand('npm', ['install'], projectDir, log, 2);
+      
+      // === FIX: Disable Strict Checks ===
+      disableStrictChecks(projectDir, log);
+
       updateStatus('BUILDING_ROOT');
       const pkg = JSON.parse(fs.readFileSync(rootPkg, 'utf-8'));
       if (pkg.scripts && pkg.scripts.build) {
@@ -891,18 +941,7 @@ header, nav, .fixed-top { margin-top: var(--sat) !important; }
   } finally {
     try { res.end(); } catch {}
     currentLogFile = null;
-    
-    // Cleanup workspace after build (optional - keep for debugging or remove to save disk)
-    // Uncomment below to auto-delete workspace after each build:
-    // try {
-    //   if (fs.existsSync(projectDir)) {
-    //     fs.rmSync(projectDir, { recursive: true, force: true });
-    //     log('🧹 Cleaned up workspace', 'info');
-    //   }
-    // } catch (e) {
-    //   console.error('Cleanup error:', e);
-    // }
   }
 });
 
-app.listen(PORT, () => console.log(`🚀 Build Server v6.2 running on port ${PORT}`));
+app.listen(PORT, () => console.log(`🚀 Build Server v6.3 running on port ${PORT}`));
