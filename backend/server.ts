@@ -1,4 +1,4 @@
-// server.ts - Production-Ready v6.3 (Auto-Fix TypeScript Errors)
+// server.ts - Production-Ready v6.4 (Gradle Settings Fix)
 import express from 'express';
 import cors from 'cors';
 import path from 'path';
@@ -85,7 +85,7 @@ function cleanupOldWorkspaces() {
 cleanupOldWorkspaces();
 setInterval(cleanupOldWorkspaces, 6 * 60 * 60 * 1000);
 
-app.get('/', (req, res) => res.status(200).send('AppBuilder-AI v6.3 (TS Fix) is Running. 🚀'));
+app.get('/', (req, res) => res.status(200).send('AppBuilder-AI v6.4 (Gradle Fix) is Running. 🚀'));
 app.use('/download', express.static(PUBLIC_DIR) as any);
 
 // Build log file helper
@@ -190,7 +190,7 @@ function writeFileSafe(p: string, content: string) {
   fs.writeFileSync(p, content, 'utf-8');
 }
 
-// === NEW HELPER: Disable Strict Type Checking ===
+// === Helper: Disable Strict Type Checking ===
 function disableStrictChecks(projectDir: string, logFn: any) {
   try {
     // 1. Patch package.json to remove 'tsc' from build command
@@ -199,8 +199,6 @@ function disableStrictChecks(projectDir: string, logFn: any) {
       const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
       if (pkg.scripts && pkg.scripts.build) {
         const originalBuild = pkg.scripts.build;
-        // Regex to remove "tsc &&" or "vue-tsc &&" or "tsc -b &&"
-        // This allows the build to proceed directly to vite/webpack
         if (originalBuild.includes('tsc')) {
           const newBuild = originalBuild.replace(/(vue-)?tsc[^&]*&&\s*/g, '').trim();
           if (newBuild !== originalBuild) {
@@ -212,14 +210,11 @@ function disableStrictChecks(projectDir: string, logFn: any) {
       }
     }
 
-    // 2. Patch tsconfig.json to ignore unused locals (if tsc still runs)
+    // 2. Patch tsconfig.json to ignore unused locals
     const tsConfigPath = path.join(projectDir, 'tsconfig.json');
     if (fs.existsSync(tsConfigPath)) {
       let content = fs.readFileSync(tsConfigPath, 'utf-8');
-      // Simple regex replace to turn off strict checks
-      // We don't use JSON.parse because tsconfig often has comments
       let modified = false;
-      
       if (content.includes('"noUnusedLocals": true')) {
         content = content.replace('"noUnusedLocals": true', '"noUnusedLocals": false');
         modified = true;
@@ -228,7 +223,6 @@ function disableStrictChecks(projectDir: string, logFn: any) {
         content = content.replace('"noEmitOnError": true', '"noEmitOnError": false');
         modified = true;
       }
-      
       if (modified) {
         fs.writeFileSync(tsConfigPath, content);
         logFn('🛡️ Disabled strict TypeScript checks in tsconfig.json', 'info');
@@ -307,7 +301,7 @@ async function verifyEnvironment(logFn: (msg: string, type: 'info'|'error'|'succ
   return allRequired;
 }
 
-// Comprehensive Kotlin + dependency resolution (all levels)
+// === CRITICAL FIX: Only apply to build.gradle, NEVER settings.gradle ===
 function applyKotlinResolutionStrategy(androidRoot: string, kotlinVersion = '1.8.22'): boolean {
   const resolutionBlock = `
 // === APPBUILDER_KOTLIN_FIX_APPLIED ===
@@ -332,11 +326,11 @@ allprojects {
 }
 `;
 
+  // FIX: Removed settings.gradle from this list. 
+  // 'subprojects' block causes crash in settings.gradle.
   const candidates = [
     path.join(androidRoot, 'build.gradle'),
-    path.join(androidRoot, 'build.gradle.kts'),
-    path.join(androidRoot, 'settings.gradle'),
-    path.join(androidRoot, 'settings.gradle.kts')
+    path.join(androidRoot, 'build.gradle.kts')
   ];
 
   let applied = false;
@@ -944,4 +938,4 @@ header, nav, .fixed-top { margin-top: var(--sat) !important; }
   }
 });
 
-app.listen(PORT, () => console.log(`🚀 Build Server v6.3 running on port ${PORT}`));
+app.listen(PORT, () => console.log(`🚀 Build Server v6.4 running on port ${PORT}`));
