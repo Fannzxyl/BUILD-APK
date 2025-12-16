@@ -39,7 +39,7 @@ if (!process.env.JAVA_HOME) {
     '/Library/Java/JavaVirtualMachines/jdk-17.jdk/Contents/Home',
     '/opt/java/openjdk'
   ];
-  
+
   for (const candidate of javaHomeCandidates) {
     if (fs.existsSync(candidate)) {
       process.env.JAVA_HOME = candidate;
@@ -54,12 +54,12 @@ function cleanupOldWorkspaces() {
   try {
     const now = Date.now();
     const maxAge = 24 * 60 * 60 * 1000; // 24 hours
-    
+
     if (!fs.existsSync(WORKSPACE_DIR)) return;
-    
+
     const dirs = fs.readdirSync(WORKSPACE_DIR);
     let cleaned = 0;
-    
+
     for (const dir of dirs) {
       const dirPath = path.join(WORKSPACE_DIR, dir);
       try {
@@ -72,7 +72,7 @@ function cleanupOldWorkspaces() {
         // Skip if can't access
       }
     }
-    
+
     if (cleaned > 0) {
       console.log(`🧹 Cleaned up ${cleaned} old workspace(s)`);
     }
@@ -98,17 +98,17 @@ function logToFile(message: string) {
   }
 }
 
-const sendEvent = (res: any, data: any) => { 
-  try { 
-    res.write(`data: ${JSON.stringify(data)}\n\n`); 
-  } catch (e) { /* ignore */ } 
+const sendEvent = (res: any, data: any) => {
+  try {
+    res.write(`data: ${JSON.stringify(data)}\n\n`);
+  } catch (e) { /* ignore */ }
 };
 
 function runCommand(
-  command: string, 
-  args: string[], 
-  cwd: string, 
-  logFn?: (msg: string, type: 'info'|'error'|'command') => void,
+  command: string,
+  args: string[],
+  cwd: string,
+  logFn?: (msg: string, type: 'info' | 'error' | 'command') => void,
   retries: number = 0,
   timeoutMs: number = 600000 // 10 minutes default
 ): Promise<void> {
@@ -116,16 +116,16 @@ function runCommand(
     const cmdStr = [command, ...args].join(' ');
     if (logFn) logFn(cmdStr, 'command');
 
-    const child = spawn(command, args, { 
-      cwd, 
-      shell: true, 
-      env: { 
-        ...process.env, 
-        CI: 'true', 
+    const child = spawn(command, args, {
+      cwd,
+      shell: true,
+      env: {
+        ...process.env,
+        CI: 'true',
         TERM: 'dumb',
         ANDROID_SDK_ROOT: process.env.ANDROID_SDK_ROOT || process.env.ANDROID_HOME || '',
         JAVA_HOME: process.env.JAVA_HOME || ''
-      } 
+      }
     });
 
     let timeout: NodeJS.Timeout | null = setTimeout(() => {
@@ -234,9 +234,9 @@ function disableStrictChecks(projectDir: string, logFn: any) {
 }
 
 // Enhanced environment verification
-async function verifyEnvironment(logFn: (msg: string, type: 'info'|'error'|'success') => void): Promise<boolean> {
+async function verifyEnvironment(logFn: (msg: string, type: 'info' | 'error' | 'success') => void): Promise<boolean> {
   logFn('🔍 Verifying build environment...', 'info');
-  
+
   const checks = {
     node: false,
     npm: false,
@@ -286,7 +286,7 @@ async function verifyEnvironment(logFn: (msg: string, type: 'info'|'error'|'succ
   if (androidSdkRoot && fs.existsSync(androidSdkRoot)) {
     checks.androidSdk = true;
     logFn(`✅ Android SDK: Found at ${androidSdkRoot}`, 'success');
-    
+
     // Check for build-tools
     const buildToolsDir = path.join(androidSdkRoot, 'build-tools');
     if (fs.existsSync(buildToolsDir)) {
@@ -336,7 +336,7 @@ allprojects {
   let applied = false;
   for (const candidate of candidates) {
     if (!fs.existsSync(candidate)) continue;
-    
+
     try {
       let content = fs.readFileSync(candidate, 'utf-8');
       if (content.includes('APPBUILDER_KOTLIN_FIX_APPLIED')) {
@@ -382,7 +382,7 @@ function addNativeLibsPackaging(androidRoot: string): boolean {
 
   try {
     let content = fs.readFileSync(appBuildGradle, 'utf-8');
-    
+
     // Skip if already has packaging options for natives
     if (content.includes('APPBUILDER_NATIVE_LIBS_FIX')) {
       return true;
@@ -420,7 +420,7 @@ function addNativeLibsPackaging(androidRoot: string): boolean {
 // Update gradle.properties with production settings
 function updateGradleProperties(androidRoot: string, isLargeProject: boolean = false): boolean {
   const gradlePropsPath = path.join(androidRoot, 'gradle.properties');
-  
+
   try {
     let content = '';
     if (fs.existsSync(gradlePropsPath)) {
@@ -435,7 +435,7 @@ function updateGradleProperties(androidRoot: string, isLargeProject: boolean = f
     ];
 
     // Adjust memory for large projects (game/AI)
-    const memoryProp = isLargeProject 
+    const memoryProp = isLargeProject
       ? 'org.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=1024m -XX:+HeapDumpOnOutOfMemoryError'
       : 'org.gradle.jvmargs=-Xmx2048m -XX:MaxMetaspaceSize=512m';
 
@@ -459,7 +459,7 @@ function updateGradleProperties(androidRoot: string, isLargeProject: boolean = f
       fs.writeFileSync(gradlePropsPath, content, 'utf-8');
       return true;
     }
-    
+
     return true;
   } catch (e) {
     return false;
@@ -473,14 +473,14 @@ function detectLargeProject(projectDir: string): boolean {
     if (fs.existsSync(pkg)) {
       const pkgJson = JSON.parse(fs.readFileSync(pkg, 'utf-8'));
       const deps = { ...pkgJson.dependencies, ...pkgJson.devDependencies };
-      
+
       // Check for game/AI frameworks
       const indicators = [
         'three', 'phaser', 'babylon', 'unity', 'tensorflow', 'tfjs',
         '@tensorflow/tfjs', 'onnxruntime', 'torch', 'ml-kit'
       ];
-      
-      return Object.keys(deps).some(dep => 
+
+      return Object.keys(deps).some(dep =>
         indicators.some(ind => dep.toLowerCase().includes(ind))
       );
     }
@@ -494,7 +494,7 @@ function downloadFile(url: string, dest: string): Promise<void> {
   return new Promise((resolve, reject) => {
     const file = fs.createWriteStream(dest);
     const protocol = url.startsWith('https') ? https : http;
-    
+
     protocol.get(url, (response) => {
       if (response.statusCode === 302 || response.statusCode === 301) {
         file.close();
@@ -506,7 +506,7 @@ function downloadFile(url: string, dest: string): Promise<void> {
         }
         return;
       }
-      
+
       if (response.statusCode !== 200) {
         file.close();
         fs.unlinkSync(dest);
@@ -548,7 +548,11 @@ function patchStylesAppendItems(stylesPath: string, itemsXml: string): boolean {
 }
 
 app.post('/api/build/stream', async (req, res) => {
-  const { repoUrl, appName, appId, orientation, iconUrl, fullscreen, versionCode, versionName } = req.body;
+  const {
+    repoUrl, appName, appId, orientation, iconUrl, fullscreen, versionCode, versionName,
+    // NEW: Build configuration options
+    buildType, outputFormat, minSdk, targetSdk, enableProguard, permissions, splashColor, splashDuration, splashImage
+  } = req.body;
 
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
@@ -556,11 +560,11 @@ app.post('/api/build/stream', async (req, res) => {
 
   const buildId = uuidv4();
   const projectDir = path.join(WORKSPACE_DIR, buildId);
-  
+
   // Reset log file initially to prevent writing to non-existent folder
   currentLogFile = null;
 
-  const log = (message: string, type: 'info'|'command'|'error'|'success' = 'info') => {
+  const log = (message: string, type: 'info' | 'command' | 'error' | 'success' = 'info') => {
     const logEntry = { id: uuidv4(), timestamp: new Date().toLocaleTimeString(), message, type };
     sendEvent(res, { type: 'log', log: logEntry });
     // Only write to file if it has been initialized (after clone)
@@ -584,6 +588,16 @@ app.post('/api/build/stream', async (req, res) => {
   const vCode = (versionCode as string) || '1';
   const vName = (versionName as string) || '1.0';
 
+  // NEW: Parse build configuration
+  const isReleaseBuild = buildType === 'release';
+  const outputIsAAB = outputFormat === 'aab';
+  const finalMinSdk = parseInt(minSdk as string) || 21;
+  const finalTargetSdk = parseInt(targetSdk as string) || 34;
+  const useProguard = enableProguard === true;
+  const appPermissions = permissions || { INTERNET: true };
+  const finalSplashColor = (splashColor as string) || '#000000';
+  const finalSplashDuration = parseInt(splashDuration as string) || 2000;
+
   try {
     // 1. Ensure target directory does NOT exist
     if (fs.existsSync(projectDir)) {
@@ -592,7 +606,8 @@ app.post('/api/build/stream', async (req, res) => {
     }
 
     log(`🚀 Starting build process ID: ${buildId}`, 'info');
-    log(`📦 Config: ${finalAppName} (${finalAppId}) | v${vName} | Fullscreen: ${isFullscreen}`, 'info');
+    log(`📦 Config: ${finalAppName} (${finalAppId}) | v${vName} | ${isReleaseBuild ? 'RELEASE' : 'DEBUG'} | ${outputIsAAB ? 'AAB' : 'APK'}`, 'info');
+    log(`⚙️ SDK: ${finalMinSdk}-${finalTargetSdk} | ProGuard: ${useProguard} | Fullscreen: ${isFullscreen}`, 'info');
 
     // Environment verification
     updateStatus('VERIFYING_ENVIRONMENT');
@@ -603,7 +618,7 @@ app.post('/api/build/stream', async (req, res) => {
 
     updateStatus('CLONING');
     log(`Cloning ${repoUrl}...`, 'command');
-    
+
     // 2. Clone from WORKSPACE_DIR into buildId folder
     await runCommand('git', ['clone', '--depth', '1', repoUrl, buildId], WORKSPACE_DIR, log, 2);
 
@@ -629,7 +644,7 @@ app.post('/api/build/stream', async (req, res) => {
       log('✅ Detected nested frontend at `./frontend`. Using Nested Node.js Build Mode.', 'success');
       updateStatus('INSTALLING_FRONTEND');
       await runCommand('npm', ['install'], frontendDir, log, 2);
-      
+
       // === FIX: Disable Strict Checks ===
       disableStrictChecks(frontendDir, log);
 
@@ -650,7 +665,7 @@ app.post('/api/build/stream', async (req, res) => {
       log('✅ Detected package.json at project root. Using Node.js Build Mode.', 'success');
       updateStatus('INSTALLING_ROOT');
       await runCommand('npm', ['install'], projectDir, log, 2);
-      
+
       // === FIX: Disable Strict Checks ===
       disableStrictChecks(projectDir, log);
 
@@ -687,7 +702,7 @@ app.post('/api/build/stream', async (req, res) => {
       log('No build output folder detected — copying repo root files into ./web as fallback.', 'info');
       const files = fs.readdirSync(projectDir);
       for (const f of files) {
-        if (['android','node_modules','workspace','.git'].includes(f)) continue;
+        if (['android', 'node_modules', 'workspace', '.git'].includes(f)) continue;
         await copyRecursive(path.join(projectDir, f), path.join(finalWebDirOnFs, f));
       }
       if (!fs.existsSync(path.join(finalWebDirOnFs, 'index.html'))) {
@@ -814,11 +829,11 @@ header, nav, .fixed-top { margin-top: var(--sat) !important; }
     // Apply comprehensive fixes
     try {
       log('🔧 Applying Kotlin & dependency resolution fixes...', 'info');
-      
+
       const kotlinFixed = applyKotlinResolutionStrategy(androidDir, '1.8.22');
       const nativeLibsFixed = addNativeLibsPackaging(androidDir);
       const propsUpdated = updateGradleProperties(androidDir, isLargeProject);
-      
+
       if (kotlinFixed && propsUpdated) {
         log('✅ Applied Kotlin stdlib conflict resolution at ALL levels!', 'success');
       }
@@ -876,8 +891,8 @@ header, nav, .fixed-top { margin-top: var(--sat) !important; }
             }
             log('✅ Custom icon applied successfully!', 'success');
           }
-        } catch (err: any) { 
-          log('Failed to process custom icon: ' + (err.message || err), 'error'); 
+        } catch (err: any) {
+          log('Failed to process custom icon: ' + (err.message || err), 'error');
         }
       }
     }
@@ -895,36 +910,154 @@ header, nav, .fixed-top { margin-top: var(--sat) !important; }
       }
     }
 
-    // Build APK with extended timeout for large projects
+    // === NEW: Patch build.gradle with SDK versions and ProGuard ===
+    const appBuildGradlePath = path.join(androidDir, 'app/build.gradle');
+    if (fs.existsSync(appBuildGradlePath)) {
+      try {
+        let buildGradleContent = fs.readFileSync(appBuildGradlePath, 'utf-8');
+
+        // Patch minSdk
+        buildGradleContent = buildGradleContent.replace(
+          /minSdkVersion\s+\d+/,
+          `minSdkVersion ${finalMinSdk}`
+        );
+
+        // Patch targetSdk
+        buildGradleContent = buildGradleContent.replace(
+          /targetSdkVersion\s+\d+/,
+          `targetSdkVersion ${finalTargetSdk}`
+        );
+
+        // Add ProGuard/R8 if enabled and release build
+        if (useProguard && isReleaseBuild) {
+          if (!buildGradleContent.includes('minifyEnabled true')) {
+            buildGradleContent = buildGradleContent.replace(
+              /buildTypes\s*\{[\s\S]*?release\s*\{/,
+              `buildTypes {
+        release {
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'`
+            );
+            log('✅ Enabled R8/ProGuard code shrinking for release build', 'success');
+          }
+        }
+
+        fs.writeFileSync(appBuildGradlePath, buildGradleContent, 'utf-8');
+        log(`✅ Patched SDK versions: minSdk=${finalMinSdk}, targetSdk=${finalTargetSdk}`, 'success');
+      } catch (e: any) {
+        log('Warning: Failed to patch SDK versions: ' + (e.message || e), 'error');
+      }
+    }
+
+    // === NEW: Inject Permissions into AndroidManifest.xml ===
+    if (fs.existsSync(androidManifestPath)) {
+      try {
+        let manifestContent = fs.readFileSync(androidManifestPath, 'utf-8');
+        const permissionXmlLines: string[] = [];
+
+        const permissionMap: Record<string, string> = {
+          INTERNET: 'android.permission.INTERNET',
+          CAMERA: 'android.permission.CAMERA',
+          LOCATION: 'android.permission.ACCESS_FINE_LOCATION',
+          MICROPHONE: 'android.permission.RECORD_AUDIO',
+          VIBRATE: 'android.permission.VIBRATE',
+          NOTIFICATION: 'android.permission.POST_NOTIFICATIONS',
+        };
+
+        for (const [key, enabled] of Object.entries(appPermissions)) {
+          if (enabled && permissionMap[key]) {
+            const permLine = `<uses-permission android:name="${permissionMap[key]}" />`;
+            if (!manifestContent.includes(permissionMap[key])) {
+              permissionXmlLines.push(permLine);
+            }
+          }
+        }
+
+        if (permissionXmlLines.length > 0) {
+          manifestContent = manifestContent.replace(
+            '<application',
+            permissionXmlLines.join('\n    ') + '\n    <application'
+          );
+          fs.writeFileSync(androidManifestPath, manifestContent, 'utf-8');
+          log(`✅ Injected ${permissionXmlLines.length} permission(s) into AndroidManifest.xml`, 'success');
+        }
+      } catch (e: any) {
+        log('Warning: Failed to inject permissions: ' + (e.message || e), 'error');
+      }
+    }
+
+    // === NEW: Configure Splash Screen ===
+    const capacitorConfigPath = path.join(projectDir, 'capacitor.config.json');
+    if (fs.existsSync(capacitorConfigPath)) {
+      try {
+        const capConfig = JSON.parse(fs.readFileSync(capacitorConfigPath, 'utf-8'));
+        capConfig.plugins = capConfig.plugins || {};
+        capConfig.plugins.SplashScreen = {
+          launchShowDuration: finalSplashDuration,
+          launchAutoHide: true,
+          backgroundColor: finalSplashColor,
+          androidScaleType: 'CENTER_CROP',
+          showSpinner: false,
+        };
+        fs.writeFileSync(capacitorConfigPath, JSON.stringify(capConfig, null, 2), 'utf-8');
+        log(`✅ Configured splash screen: ${finalSplashColor}, ${finalSplashDuration}ms`, 'success');
+      } catch (e: any) {
+        log('Warning: Failed to configure splash screen: ' + (e.message || e), 'error');
+      }
+    }
+
+    // Build APK/AAB with extended timeout for large projects
     updateStatus('COMPILING_APK');
     const buildTimeout = isLargeProject ? 1800000 : 900000; // 30 min for large, 15 min for normal
-    log(`🔨 Compiling APK with Gradle (timeout: ${buildTimeout/60000} minutes)...`, 'command');
+
+    // Determine Gradle command based on build type and output format
+    let gradleTask: string;
+    if (outputIsAAB) {
+      gradleTask = isReleaseBuild ? 'bundleRelease' : 'bundleDebug';
+    } else {
+      gradleTask = isReleaseBuild ? 'assembleRelease' : 'assembleDebug';
+    }
+
+    log(`🔨 Building ${outputIsAAB ? 'AAB' : 'APK'} (${isReleaseBuild ? 'Release' : 'Debug'}) with Gradle...`, 'command');
+
     if (fs.existsSync(path.join(gradleDir, 'gradlew'))) {
-      const gradleArgs = isLargeProject 
-        ? ['assembleDebug', '--refresh-dependencies', '--stacktrace', '--no-daemon']
-        : ['assembleDebug', '--refresh-dependencies', '--stacktrace'];
-      
+      const gradleArgs = isLargeProject
+        ? [gradleTask, '--refresh-dependencies', '--stacktrace', '--no-daemon']
+        : [gradleTask, '--refresh-dependencies', '--stacktrace'];
+
       await runCommand('./gradlew', gradleArgs, gradleDir, log, 0, buildTimeout);
     } else {
       throw new Error('gradlew script not found in android folder.');
     }
 
-    const expectedApkPath = path.join(gradleDir, 'app/build/outputs/apk/debug/app-debug.apk');
-    if (fs.existsSync(expectedApkPath)) {
-      const publicApkName = `${finalAppName.replace(/\s+/g, '_')}_v${vName}.apk`;
-      const publicApkPath = path.join(PUBLIC_DIR, publicApkName);
-      fs.renameSync(expectedApkPath, publicApkPath);
+    // Determine output path based on format and build type
+    let expectedOutputPath: string;
+    let outputFileName: string;
+    const buildTypeFolder = isReleaseBuild ? 'release' : 'debug';
+
+    if (outputIsAAB) {
+      expectedOutputPath = path.join(gradleDir, `app/build/outputs/bundle/${buildTypeFolder}/app-${buildTypeFolder}.aab`);
+      outputFileName = `${finalAppName.replace(/\s+/g, '_')}_v${vName}.aab`;
+    } else {
+      expectedOutputPath = path.join(gradleDir, `app/build/outputs/apk/${buildTypeFolder}/app-${buildTypeFolder}.apk`);
+      outputFileName = `${finalAppName.replace(/\s+/g, '_')}_v${vName}.apk`;
+    }
+
+    if (fs.existsSync(expectedOutputPath)) {
+      const publicOutputPath = path.join(PUBLIC_DIR, outputFileName);
+      fs.renameSync(expectedOutputPath, publicOutputPath);
 
       const protocol = (req.headers['x-forwarded-proto'] as string) || req.protocol;
       const host = (req.headers['x-forwarded-host'] as string) || req.get('host');
-      const downloadUrl = `${protocol}://${host}/download/${publicApkName}`;
+      const downloadUrl = `${protocol}://${host}/download/${outputFileName}`;
 
       updateStatus('SUCCESS');
-      log('🎉 APK generated successfully!', 'success');
+      log(`🎉 ${outputIsAAB ? 'AAB' : 'APK'} generated successfully!`, 'success');
       log(`📥 Download: ${downloadUrl}`, 'success');
       sendEvent(res, { type: 'result', success: true, downloadUrl });
     } else {
-      throw new Error('APK not found after gradle assemble. Check gradle output for errors.');
+      throw new Error(`${outputIsAAB ? 'AAB' : 'APK'} not found after gradle build. Check gradle output for errors.`);
     }
 
   } catch (error: any) {
@@ -933,7 +1066,7 @@ header, nav, .fixed-top { margin-top: var(--sat) !important; }
     log('❌ Build failed: ' + (error.message || String(error)), 'error');
     sendEvent(res, { type: 'result', success: false, error: error.message || String(error) });
   } finally {
-    try { res.end(); } catch {}
+    try { res.end(); } catch { }
     currentLogFile = null;
   }
 });
