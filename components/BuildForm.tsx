@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Github, Play, Loader2, ArrowRight, Monitor, Smartphone, LayoutTemplate, Box, CheckCircle2, Upload, Image as ImageIcon, Shield, Zap, Package, Settings2, Palette, Camera, MapPin, Mic, Vibrate, Wifi, Bell, ChevronDown } from 'lucide-react';
+import { Github, Play, Loader2, ArrowRight, Monitor, Smartphone, LayoutTemplate, Box, CheckCircle2, Upload, Image as ImageIcon, Shield, Zap, Package, Settings2, Palette, Camera, MapPin, Mic, Vibrate, Wifi, Bell, ChevronDown, Link2, Globe, Puzzle } from 'lucide-react';
 import { BuildStatus } from '../types';
 import Stepper, { Step } from './Stepper';
 import { BorderBeam } from './BorderBeam';
@@ -50,6 +50,25 @@ export const BuildForm: React.FC<BuildFormProps> = ({ onBuild, status }) => {
     const [splashDuration, setSplashDuration] = useState('2000');
     const [splashImage, setSplashImage] = useState('');
     const splashInputRef = useRef<HTMLInputElement>(null);
+    const [autoSplashFromIcon, setAutoSplashFromIcon] = useState(true);
+
+    // NEW: Deep Link Configuration (for Firebase Auth OAuth)
+    const [enableDeepLink, setEnableDeepLink] = useState(false);
+    const [deepLinkScheme, setDeepLinkScheme] = useState('');
+    const [deepLinkHost, setDeepLinkHost] = useState('auth');
+    const [firebaseAuthDomain, setFirebaseAuthDomain] = useState('');
+
+    // NEW: Capacitor Plugins
+    const [plugins, setPlugins] = useState({
+        browser: false,
+        camera: false,
+        filesystem: false,
+        share: false,
+        pushNotifications: false,
+    });
+
+    // NEW: Environment Variables
+    const [envVars, setEnvVars] = useState<{ key: string, value: string }[]>([]);
 
     // SDK Options for dropdowns
     const sdkOptions = [
@@ -111,7 +130,7 @@ export const BuildForm: React.FC<BuildFormProps> = ({ onBuild, status }) => {
             iconUrl,
             versionCode,
             versionName,
-            // NEW: Build config
+            // Build config
             buildType,
             outputFormat,
             minSdk,
@@ -121,6 +140,16 @@ export const BuildForm: React.FC<BuildFormProps> = ({ onBuild, status }) => {
             splashColor,
             splashDuration,
             splashImage,
+            autoSplashFromIcon,
+            // Deep Link config (for Firebase Auth OAuth)
+            enableDeepLink,
+            deepLinkScheme,
+            deepLinkHost,
+            firebaseAuthDomain,
+            // Capacitor Plugins
+            plugins,
+            // Environment Variables
+            envVars,
         });
     };
 
@@ -505,6 +534,126 @@ export const BuildForm: React.FC<BuildFormProps> = ({ onBuild, status }) => {
                                             <span className="ml-auto text-[10px] text-zinc-600">Reduces APK size</span>
                                         </label>
                                     </div>
+
+                                    {/* Auto Splash from Icon */}
+                                    <div className="mt-3">
+                                        <label className="flex items-center gap-3 p-3 bg-zinc-800/30 rounded-xl border border-zinc-700/50 cursor-pointer group hover:border-zinc-600 transition-all">
+                                            <input
+                                                type="checkbox"
+                                                checked={autoSplashFromIcon}
+                                                onChange={e => setAutoSplashFromIcon(e.target.checked)}
+                                                className="accent-brand-500 w-4 h-4"
+                                            />
+                                            <div className="flex items-center gap-2">
+                                                <Palette className="w-4 h-4 text-purple-400" />
+                                                <span className="text-xs md:text-sm text-zinc-300 group-hover:text-white">Auto-generate Splash from Icon</span>
+                                            </div>
+                                            <span className="ml-auto text-[10px] text-zinc-600">Uses app icon as splash</span>
+                                        </label>
+                                    </div>
+                                </div>
+
+                                {/* === NEW: DEEP LINK CONFIGURATION === */}
+                                <div className="mt-6 md:mt-8 pt-4 md:pt-6 border-t border-white/5">
+                                    <h3 className="text-sm md:text-base font-bold text-white mb-4 flex items-center gap-2">
+                                        <Link2 className="w-4 h-4 text-orange-400" /> Deep Link / OAuth <span className="text-[10px] bg-orange-500/20 text-orange-300 px-2 py-0.5 rounded-full ml-2">Firebase Auth</span>
+                                    </h3>
+
+                                    {/* Enable Toggle */}
+                                    <label className="flex items-center gap-3 p-3 bg-zinc-800/30 rounded-xl border border-zinc-700/50 cursor-pointer group hover:border-zinc-600 transition-all mb-4">
+                                        <input
+                                            type="checkbox"
+                                            checked={enableDeepLink}
+                                            onChange={e => setEnableDeepLink(e.target.checked)}
+                                            className="accent-orange-500 w-4 h-4"
+                                        />
+                                        <div className="flex items-center gap-2">
+                                            <Globe className="w-4 h-4 text-orange-400" />
+                                            <span className="text-xs md:text-sm text-zinc-300 group-hover:text-white">Enable Deep Link Support</span>
+                                        </div>
+                                        <span className="ml-auto text-[10px] text-zinc-600">Required for OAuth redirect</span>
+                                    </label>
+
+                                    {enableDeepLink && (
+                                        <div className="space-y-4 animate-in fade-in slide-in-from-top-2 duration-300">
+                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                <div>
+                                                    <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider mb-1.5 block">URL Scheme</label>
+                                                    <div className="relative">
+                                                        <input
+                                                            type="text"
+                                                            value={deepLinkScheme}
+                                                            onChange={e => setDeepLinkScheme(e.target.value.toLowerCase().replace(/[^a-z0-9]/g, ''))}
+                                                            placeholder={appId.split('.').pop() || 'myapp'}
+                                                            className="w-full bg-zinc-900/50 border border-zinc-700/50 rounded-xl px-4 py-3 text-white outline-none transition-all focus:border-orange-500 text-sm font-mono"
+                                                        />
+                                                        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-600 text-xs">://</span>
+                                                    </div>
+                                                    <p className="text-[10px] text-zinc-600 mt-1">e.g., "myapp" → myapp://auth</p>
+                                                </div>
+                                                <div>
+                                                    <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider mb-1.5 block">Host Path</label>
+                                                    <input
+                                                        type="text"
+                                                        value={deepLinkHost}
+                                                        onChange={e => setDeepLinkHost(e.target.value)}
+                                                        placeholder="auth"
+                                                        className="w-full bg-zinc-900/50 border border-zinc-700/50 rounded-xl px-4 py-3 text-white outline-none transition-all focus:border-orange-500 text-sm"
+                                                    />
+                                                </div>
+                                            </div>
+
+                                            {/* Firebase Auth Domain */}
+                                            <div className="p-4 bg-orange-500/5 rounded-xl border border-orange-500/20">
+                                                <label className="text-xs font-bold text-orange-400 uppercase tracking-wider mb-2 block flex items-center gap-2">
+                                                    🔥 Firebase Auth Domain <span className="text-zinc-500 font-normal normal-case">(Optional)</span>
+                                                </label>
+                                                <input
+                                                    type="text"
+                                                    value={firebaseAuthDomain}
+                                                    onChange={e => setFirebaseAuthDomain(e.target.value)}
+                                                    placeholder="your-app.firebaseapp.com"
+                                                    className="w-full bg-zinc-900/80 border border-orange-500/30 rounded-xl px-4 py-3 text-white outline-none transition-all focus:border-orange-500 text-sm font-mono"
+                                                />
+                                                <p className="text-[10px] text-orange-300/60 mt-2">
+                                                    💡 This enables automatic HTTPS deep link for Firebase Auth handler redirect
+                                                </p>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* === NEW: CAPACITOR PLUGINS === */}
+                                <div className="mt-6 md:mt-8 pt-4 md:pt-6 border-t border-white/5">
+                                    <h3 className="text-sm md:text-base font-bold text-white mb-4 flex items-center gap-2">
+                                        <Puzzle className="w-4 h-4 text-cyan-400" /> Capacitor Plugins <span className="text-[10px] text-zinc-500 ml-2">Optional</span>
+                                    </h3>
+
+                                    <div className="grid grid-cols-2 md:grid-cols-3 gap-2 md:gap-3">
+                                        {[
+                                            { key: 'browser', label: 'Browser', desc: 'OAuth popups', recommended: true },
+                                            { key: 'camera', label: 'Camera', desc: 'Photo/Video' },
+                                            { key: 'filesystem', label: 'Filesystem', desc: 'File access' },
+                                            { key: 'share', label: 'Share', desc: 'Native share' },
+                                            { key: 'pushNotifications', label: 'Push Notif', desc: 'FCM/APNS' },
+                                        ].map(({ key, label, desc, recommended }) => (
+                                            <button
+                                                key={key}
+                                                type="button"
+                                                onClick={() => setPlugins(prev => ({ ...prev, [key]: !prev[key as keyof typeof plugins] }))}
+                                                className={`p-3 rounded-xl text-xs font-medium transition-all flex flex-col items-start gap-1 ${plugins[key as keyof typeof plugins]
+                                                    ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30'
+                                                    : 'bg-zinc-900/50 text-zinc-500 border border-zinc-800 hover:border-zinc-700'
+                                                    }`}
+                                            >
+                                                <span className="flex items-center gap-1.5">
+                                                    {label}
+                                                    {recommended && <span className="text-[8px] bg-cyan-500/30 px-1 rounded">REC</span>}
+                                                </span>
+                                                <span className="text-[10px] text-zinc-600">{desc}</span>
+                                            </button>
+                                        ))}
+                                    </div>
                                 </div>
 
                                 <div className="flex justify-between mt-6 md:mt-8 pt-4 md:pt-6 border-t border-white/5">
@@ -558,15 +707,32 @@ export const BuildForm: React.FC<BuildFormProps> = ({ onBuild, status }) => {
                                                 {orientation} {fullscreen && <span className="text-[10px] md:text-xs bg-brand-500/20 text-brand-300 px-1.5 py-0.5 rounded-full">Full</span>}
                                             </span>
                                         </div>
-                                        <div className="flex justify-between items-center">
+                                        <div className="flex justify-between items-center border-b border-white/5 pb-2">
                                             <span className="text-zinc-500">Options</span>
                                             <span className="flex items-center gap-1 flex-wrap justify-end">
                                                 {enableProguard && <span className="text-[10px] px-1.5 py-0.5 rounded bg-yellow-500/20 text-yellow-300">R8</span>}
+                                                {enableDeepLink && <span className="text-[10px] px-1.5 py-0.5 rounded bg-orange-500/20 text-orange-300">DeepLink</span>}
                                                 {Object.entries(permissions).filter(([, v]) => v).map(([k]) => (
                                                     <span key={k} className="text-[10px] px-1.5 py-0.5 rounded bg-zinc-700 text-zinc-300">{k}</span>
                                                 ))}
                                             </span>
                                         </div>
+                                        {enableDeepLink && (
+                                            <div className="flex justify-between items-center border-b border-white/5 pb-2">
+                                                <span className="text-zinc-500">Deep Link</span>
+                                                <span className="text-orange-300 font-mono text-xs">{deepLinkScheme || appId.split('.').pop()}://{deepLinkHost}</span>
+                                            </div>
+                                        )}
+                                        {Object.values(plugins).some(v => v) && (
+                                            <div className="flex justify-between items-center">
+                                                <span className="text-zinc-500">Plugins</span>
+                                                <span className="flex items-center gap-1 flex-wrap justify-end">
+                                                    {Object.entries(plugins).filter(([, v]) => v).map(([k]) => (
+                                                        <span key={k} className="text-[10px] px-1.5 py-0.5 rounded bg-cyan-500/20 text-cyan-300">{k}</span>
+                                                    ))}
+                                                </span>
+                                            </div>
+                                        )}
                                     </div>
                                 </div>
 

@@ -547,11 +547,71 @@ function patchStylesAppendItems(stylesPath: string, itemsXml: string): boolean {
   return false;
 }
 
+// === Deep Link Intent Filter for OAuth (Firebase Auth) ===
+function addDeepLinkIntentFilter(
+  manifestPath: string,
+  scheme: string,
+  host: string,
+  firebaseDomain?: string
+): boolean {
+  let manifest = readFileSafe(manifestPath);
+  if (!manifest) return false;
+
+  // Skip if already has our custom deep link
+  if (manifest.includes('APPBUILDER_DEEPLINK_APPLIED')) return true;
+
+  // Intent filter for custom URL scheme (e.g., myapp://auth)
+  const customSchemeIntent = `
+            <!-- === APPBUILDER_DEEPLINK_APPLIED === -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="${scheme}" android:host="${host}"/>
+            </intent-filter>`;
+
+  // Firebase Auth handler HTTPS deep link
+  const firebaseIntent = firebaseDomain ? `
+            <!-- Firebase Auth Handler -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="https" android:host="${firebaseDomain}" android:pathPrefix="/__/auth/handler"/>
+            </intent-filter>` : '';
+
+  // Find the main activity and insert intent filters inside it
+  const activityMatch = manifest.match(/<activity[^>]*android:name="\.MainActivity"[^>]*>/);
+  if (activityMatch) {
+    const insertPoint = activityMatch[0];
+    manifest = manifest.replace(insertPoint, `${insertPoint}${customSchemeIntent}${firebaseIntent}`);
+    writeFileSafe(manifestPath, manifest);
+    return true;
+  }
+
+  // Fallback: insert after first <activity tag
+  const fallbackMatch = manifest.match(/<activity[^>]*>/);
+  if (fallbackMatch) {
+    const insertPoint = fallbackMatch[0];
+    manifest = manifest.replace(insertPoint, `${insertPoint}${customSchemeIntent}${firebaseIntent}`);
+    writeFileSafe(manifestPath, manifest);
+    return true;
+  }
+
+  return false;
+}
+
 app.post('/api/build/stream', async (req, res) => {
   const {
     repoUrl, appName, appId, orientation, iconUrl, fullscreen, versionCode, versionName,
-    // NEW: Build configuration options
-    buildType, outputFormat, minSdk, targetSdk, enableProguard, permissions, splashColor, splashDuration, splashImage
+    // Build configuration options
+    buildType, outputFormat, minSdk, targetSdk, enableProguard, permissions, splashColor, splashDuration, splashImage, autoSplashFromIcon,
+    // Deep Link configuration (for Firebase Auth OAuth)
+    enableDeepLink, deepLinkScheme, deepLinkHost, firebaseAuthDomain,
+    // Capacitor Plugins
+    plugins,
+    // Environment Variables
+    envVars
   } = req.body;
 
   res.setHeader('Content-Type', 'text/event-stream');
@@ -588,7 +648,7 @@ app.post('/api/build/stream', async (req, res) => {
   const vCode = (versionCode as string) || '1';
   const vName = (versionName as string) || '1.0';
 
-  // NEW: Parse build configuration
+  // Parse build configuration
   const isReleaseBuild = buildType === 'release';
   const outputIsAAB = outputFormat === 'aab';
   const finalMinSdk = parseInt(minSdk as string) || 21;
@@ -597,6 +657,19 @@ app.post('/api/build/stream', async (req, res) => {
   const appPermissions = permissions || { INTERNET: true };
   const finalSplashColor = (splashColor as string) || '#000000';
   const finalSplashDuration = parseInt(splashDuration as string) || 2000;
+  const useAutoSplash = autoSplashFromIcon === true;
+
+  // Deep Link configuration
+  const useDeepLink = enableDeepLink === true;
+  const finalDeepLinkScheme = (deepLinkScheme as string) || finalAppId.split('.').pop() || 'app';
+  const finalDeepLinkHost = (deepLinkHost as string) || 'auth';
+  const finalFirebaseDomain = (firebaseAuthDomain as string) || '';
+
+  // Capacitor Plugins
+  const selectedPlugins = plugins || {};
+
+  // Environment Variables
+  const envVariables = envVars || [];
 
   try {
     // 1. Ensure target directory does NOT exist
@@ -758,6 +831,20 @@ header, nav, .fixed-top { margin-top: var(--sat) !important; }
     log('Installing Capacitor dependencies...', 'command');
     await runCommand('npm', ['install', '@capacitor/core', '@capacitor/cli', '@capacitor/android', '--save-dev'], projectDir, log, 2);
 
+    // === Install Selected Capacitor Plugins ===
+    const pluginPackages: string[] = [];
+    if (selectedPlugins.browser) pluginPackages.push('@capacitor/browser');
+    if (selectedPlugins.camera) pluginPackages.push('@capacitor/camera');
+    if (selectedPlugins.filesystem) pluginPackages.push('@capacitor/filesystem');
+    if (selectedPlugins.share) pluginPackages.push('@capacitor/share');
+    if (selectedPlugins.pushNotifications) pluginPackages.push('@capacitor/push-notifications');
+
+    if (pluginPackages.length > 0) {
+      log(`📦 Installing ${pluginPackages.length} Capacitor plugin(s): ${pluginPackages.map(p => p.split('/')[1]).join(', ')}`, 'info');
+      await runCommand('npm', ['install', ...pluginPackages], projectDir, log, 2);
+      log(`✅ Installed plugins: ${pluginPackages.map(p => p.split('/')[1]).join(', ')}`, 'success');
+    }
+
     updateStatus('CAPACITOR_INIT');
     log('Initializing Capacitor...', 'command');
     await runCommand('npx', ['cap', 'init', finalAppName, finalAppId, '--web-dir', 'web'], projectDir, log);
@@ -844,6 +931,27 @@ header, nav, .fixed-top { margin-top: var(--sat) !important; }
       log('Warning: Some patches failed: ' + (e.message || e), 'error');
     }
 
+    // === Apply Deep Link Configuration ===
+    if (useDeepLink) {
+      try {
+        log(`🔗 Applying Deep Link configuration: ${finalDeepLinkScheme}://${finalDeepLinkHost}`, 'info');
+        const deepLinkApplied = addDeepLinkIntentFilter(
+          androidManifestPath,
+          finalDeepLinkScheme,
+          finalDeepLinkHost,
+          finalFirebaseDomain || undefined
+        );
+        if (deepLinkApplied) {
+          log(`✅ Deep Link intent filter applied successfully!`, 'success');
+          if (finalFirebaseDomain) {
+            log(`✅ Firebase Auth handler configured for: ${finalFirebaseDomain}`, 'success');
+          }
+        }
+      } catch (e: any) {
+        log('Warning: Failed to apply deep link: ' + (e.message || e), 'error');
+      }
+    }
+
     updateStatus('ANDROID_SYNC');
     await runCommand('npx', ['cap', 'sync'], projectDir, log);
 
@@ -890,6 +998,15 @@ header, nav, .fixed-top { margin-top: var(--sat) !important; }
               fs.copyFileSync(tempIconPath, targetRound);
             }
             log('✅ Custom icon applied successfully!', 'success');
+
+            // Auto-generate splash from icon if enabled
+            if (useAutoSplash) {
+              const drawableDir = path.join(resDir, 'drawable');
+              if (!fs.existsSync(drawableDir)) fs.mkdirSync(drawableDir, { recursive: true });
+              const splashPath = path.join(drawableDir, 'splash.png');
+              fs.copyFileSync(tempIconPath, splashPath);
+              log('✅ Auto-generated splash screen from icon', 'success');
+            }
           }
         } catch (err: any) {
           log('Failed to process custom icon: ' + (err.message || err), 'error');
@@ -987,7 +1104,7 @@ header, nav, .fixed-top { margin-top: var(--sat) !important; }
       }
     }
 
-    // === NEW: Configure Splash Screen ===
+    // === Configure Splash Screen & Deep Link in Capacitor Config ===
     const capacitorConfigPath = path.join(projectDir, 'capacitor.config.json');
     if (fs.existsSync(capacitorConfigPath)) {
       try {
@@ -1000,8 +1117,29 @@ header, nav, .fixed-top { margin-top: var(--sat) !important; }
           androidScaleType: 'CENTER_CROP',
           showSpinner: false,
         };
+
+        // Add Deep Link config to capacitor
+        if (useDeepLink) {
+          capConfig.appUrlOpen = {
+            url: `${finalDeepLinkScheme}://${finalDeepLinkHost}/*`
+          };
+
+          // Firebase specific navigation
+          if (finalFirebaseDomain) {
+            capConfig.server = capConfig.server || {};
+            capConfig.server.allowNavigation = [
+              `https://${finalFirebaseDomain}/*`,
+              'https://*.firebaseapp.com/*',
+              'https://accounts.google.com/*'
+            ];
+          }
+        }
+
         fs.writeFileSync(capacitorConfigPath, JSON.stringify(capConfig, null, 2), 'utf-8');
         log(`✅ Configured splash screen: ${finalSplashColor}, ${finalSplashDuration}ms`, 'success');
+        if (useDeepLink) {
+          log(`✅ Applied Deep Link config to capacitor.config.json`, 'success');
+        }
       } catch (e: any) {
         log('Warning: Failed to configure splash screen: ' + (e.message || e), 'error');
       }
