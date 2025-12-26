@@ -718,6 +718,14 @@ app.post('/api/build/stream', async (req, res) => {
       updateStatus('INSTALLING_FRONTEND');
       await runCommand('npm', ['install'], frontendDir, log, 2);
 
+      // === PRE-BUILD: Install Capacitor plugins if source code might use them ===
+      if (useDeepLink || selectedPlugins.browser) {
+        const preBuildPlugins = ['@capacitor/app', '@capacitor/browser'];
+        log('📦 Pre-installing Capacitor plugins for build compatibility...', 'info');
+        await runCommand('npm', ['install', ...preBuildPlugins], frontendDir, log, 2);
+        log('✅ Capacitor plugins installed for build', 'success');
+      }
+
       // === FIX: Disable Strict Checks ===
       disableStrictChecks(frontendDir, log);
 
@@ -738,6 +746,17 @@ app.post('/api/build/stream', async (req, res) => {
       log('✅ Detected package.json at project root. Using Node.js Build Mode.', 'success');
       updateStatus('INSTALLING_ROOT');
       await runCommand('npm', ['install'], projectDir, log, 2);
+
+      // === PRE-BUILD: Install Capacitor plugins if source code might use them ===
+      // This is necessary because source code may import @capacitor/* packages
+      // which need to exist BEFORE the build step
+      const preBuildPlugins: string[] = [];
+      if (useDeepLink || selectedPlugins.browser) {
+        preBuildPlugins.push('@capacitor/app', '@capacitor/browser');
+        log('📦 Pre-installing Capacitor plugins for build compatibility...', 'info');
+        await runCommand('npm', ['install', ...preBuildPlugins], projectDir, log, 2);
+        log('✅ Capacitor plugins installed for build', 'success');
+      }
 
       // === FIX: Disable Strict Checks ===
       disableStrictChecks(projectDir, log);
