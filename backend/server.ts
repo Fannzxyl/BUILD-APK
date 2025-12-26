@@ -833,7 +833,21 @@ header, nav, .fixed-top { margin-top: var(--sat) !important; }
 
     // === Install Selected Capacitor Plugins ===
     const pluginPackages: string[] = [];
-    if (selectedPlugins.browser) pluginPackages.push('@capacitor/browser');
+
+    // @capacitor/app is REQUIRED for deep link handling (appUrlOpen listener)
+    if (useDeepLink || selectedPlugins.browser) {
+      pluginPackages.push('@capacitor/app');
+      log('📱 Adding @capacitor/app for deep link support', 'info');
+    }
+
+    // Auto-enable browser plugin when deep link is enabled (for OAuth in external browser)
+    if (selectedPlugins.browser || useDeepLink) {
+      pluginPackages.push('@capacitor/browser');
+      if (useDeepLink && !selectedPlugins.browser) {
+        log('🔗 Auto-enabling @capacitor/browser for OAuth deep link flow', 'info');
+      }
+    }
+
     if (selectedPlugins.camera) pluginPackages.push('@capacitor/camera');
     if (selectedPlugins.filesystem) pluginPackages.push('@capacitor/filesystem');
     if (selectedPlugins.share) pluginPackages.push('@capacitor/share');
@@ -946,6 +960,8 @@ header, nav, .fixed-top { margin-top: var(--sat) !important; }
           if (finalFirebaseDomain) {
             log(`✅ Firebase Auth handler configured for: ${finalFirebaseDomain}`, 'success');
           }
+          // Helpful reminder for Firebase OAuth setup
+          log(`💡 REMINDER: Add "${finalDeepLinkScheme}://${finalDeepLinkHost}/callback" to Google Cloud Console OAuth redirect URIs!`, 'info');
         }
       } catch (e: any) {
         log('Warning: Failed to apply deep link: ' + (e.message || e), 'error');
